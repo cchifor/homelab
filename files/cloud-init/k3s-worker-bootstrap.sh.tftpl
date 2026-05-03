@@ -1,0 +1,89 @@
+#!/bin/bash
+set -euo pipefail
+
+NODE_NAME='${node_name}'
+K3S_URL='${server_url}'
+K3S_TOKEN='${k3s_token}'
+K3S_VERSION='${k3s_version}'
+MTU='${mtu}'
+
+log() { echo "[k3s-worker-bootstrap node=$NODE_NAME] $*"; }
+
+# --- Pre-flight: memory cgroup controller (cgroupv2 first; legacy v1 fallback) ---
+if [ -r /sys/fs/cgroup/cgroup.controllers ] && grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
+  log "memory controller available (cgroupv2 unified hierarchy)"
+elif [ -r /proc/cgroups ] && awk '$1=="memory" && $4=="1" {found=1} END {exit !found}' /proc/cgroups; then
+  log "memory controller available (cgroupv1)"
+else
+  cat >&2 <<MSG
+ERROR: memory cgroup controller not available on $NODE_NAME.
+kubelet will refuse to start.
+
+Diagnostic:
+  cat /sys/fs/cgroup/cgroup.controllers   # cgroupv2: 'memory' must be listed
+  awk '\$1=="memory"' /proc/cgroups         # cgroupv1: column 4 must be 1
+MSG
+  exit 1
+fi
+
+# --- Pre-flight: systemd as PID 1 ---
+if [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
+  log "ERROR: PID 1 is not systemd; k3s install requires systemd"
+  exit 1
+fi
+
+# --- MTU configuration (live + persistent) ---
+log "Setting MTU $MTU on eth0"
+ip link set eth0 mtu "$MTU" || true
+
+if [ -d /etc/netplan ]; then
+  cat > /etc/netplan/99-cluster-mtu.yaml <<EOF
+network:
+  version: 2
+  ethernets:
+    eth0:
+      mtu: $MTU
+EOF
+  netplan apply >/dev/null 2>&1 || true
+elif [ -d /etc/systemd/network ]; then
+  for f in /etc/systemd/network/*eth0*.network; do
+    [ -f "$f" ] || continue
+    if ! grep -q '^\[Link\]' "$f"; then
+      printf '\n[Link]\nMTUBytes=%s\n' "$MTU" >> "$f"
+    elif ! grep -q '^MTUBytes=' "$f"; then
+      sed -i "/^\[Link\]/a MTUBytes=$MTU" "$f"
+    else
+      sed -i "s/^MTUBytes=.*/MTUBytes=$MTU/" "$f"
+    fi
+  done
+  systemctl restart systemd-networkd >/dev/null 2>&1 || true
+elif [ -d /etc/network/interfaces.d ]; then
+  cat > /etc/network/interfaces.d/99-cluster-mtu <<EOF
+iface eth0 inet manual
+    mtu $MTU
+EOF
+fi
+
+# --- k3s agent install (idempotent) ---
+if systemctl is-active --quiet k3s-agent; then
+  log "k3s-agent already running; will reinstall to honor any version/token change"
+  /usr/local/bin/k3s-agent-uninstall.sh >/dev/null 2>&1 || true
+fi
+
+log "Installing k3s agent (version $K3S_VERSION) joining $K3S_URL"
+curl -sfL https://get.k3s.io | \
+  INSTALL_K3S_VERSION="$K3S_VERSION" \
+  INSTALL_K3S_EXEC="agent" \
+  K3S_URL="$K3S_URL" \
+  K3S_TOKEN="$K3S_TOKEN" \
+  K3S_NODE_NAME="$NODE_NAME" \
+  sh -
+
+log "Waiting for k3s-agent to be active"
+for i in $(seq 1 60); do
+  systemctl is-active --quiet k3s-agent && break
+  sleep 2
+done
+systemctl is-active --quiet k3s-agent || { log "k3s-agent failed to start"; exit 1; }
+
+log "Done"

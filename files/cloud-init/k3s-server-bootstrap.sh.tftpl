@@ -1,0 +1,53 @@
+#!/bin/bash
+set -euo pipefail
+
+log() { echo "[k3s-server-bootstrap] $*"; }
+
+export DEBIAN_FRONTEND=noninteractive
+
+# Idempotent qemu-guest-agent install (Debian 12 cloud images don't ship it).
+if ! systemctl is-active --quiet qemu-guest-agent; then
+  log "Installing qemu-guest-agent"
+  apt-get update -qq
+  apt-get install -y -qq qemu-guest-agent
+  systemctl enable --now qemu-guest-agent
+fi
+
+# Longhorn's DaemonSet runs on every node including the control-plane and
+# requires iscsiadm/open-iscsi for its environment check. Installing it here
+# prevents one of the longhorn-manager replicas from CrashLoopBackOff.
+if ! command -v iscsiadm >/dev/null 2>&1; then
+  log "Installing open-iscsi (Longhorn prerequisite)"
+  apt-get update -qq
+  apt-get install -y -qq open-iscsi nfs-common
+  systemctl enable --now iscsid open-iscsi
+fi
+
+# Idempotent k3s server install.
+if ! systemctl is-active --quiet k3s; then
+  log "Installing k3s server (version ${k3s_version})"
+  curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="${k3s_version}" \
+    INSTALL_K3S_EXEC="${k3s_install_exec}" \
+    sh -
+else
+  log "k3s already running; skipping install"
+fi
+
+log "Waiting for /var/lib/rancher/k3s/server/node-token"
+for i in $(seq 1 120); do
+  [ -f /var/lib/rancher/k3s/server/node-token ] && break
+  sleep 2
+done
+[ -f /var/lib/rancher/k3s/server/node-token ] || { log "Token file did not appear within 240s"; exit 1; }
+
+log "Waiting for control-plane node Ready"
+for i in $(seq 1 120); do
+  if k3s kubectl get nodes 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx Ready; then
+    log "Control plane Ready"
+    exit 0
+  fi
+  sleep 2
+done
+log "Control-plane node did not reach Ready within 240s"
+exit 1

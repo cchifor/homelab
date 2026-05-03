@@ -1,0 +1,15 @@
+hostname: ${hostname}
+replicas: ${replicas}
+
+ingress:
+  enabled: true
+  ingressClassName: ${ingress_class_name}
+  tls:
+    # 'rancher' = Rancher Server self-signs internally and presents the cert via its
+    # built-in tls-rancher-ingress secret. Simplest path; cert-manager is still
+    # installed for OTHER workloads (or to swap in a real cert later by changing this
+    # to 'secret' and creating a cert-manager Certificate that targets tls-rancher-ingress).
+    source: rancher
+
+# Multi-arch friendly: let scheduler place wherever; Rancher images are multi-arch since v2.7.
+antiAffinity: preferred

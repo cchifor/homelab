@@ -1,0 +1,107 @@
+#!/bin/bash
+set -euo pipefail
+
+SYSBOX_VERSION='${sysbox_version}'
+K3S_SERVICE='${k3s_service}'
+
+log() { echo "[sysbox-install $(hostname)] $*"; }
+
+ARCH=$(dpkg --print-architecture)
+case "$ARCH" in
+  amd64|arm64) : ;;
+  *) log "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+# --- Pre-flight: unprivileged user namespaces (Sysbox requires this) ---
+if [ -r /proc/sys/kernel/unprivileged_userns_clone ]; then
+  if [ "$(cat /proc/sys/kernel/unprivileged_userns_clone)" != "1" ]; then
+    log "Enabling unprivileged_userns_clone (sysctl, persisted)"
+    echo 'kernel.unprivileged_userns_clone = 1' > /etc/sysctl.d/99-sysbox.conf
+    sysctl -w kernel.unprivileged_userns_clone=1 >/dev/null
+  fi
+fi
+
+# --- Install dependencies ---
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq fuse iptables wget ca-certificates >/dev/null
+
+# --- Install sysbox-ce (idempotent — same version is a no-op) ---
+INSTALLED_VERSION=$(dpkg-query -W -f='$${Version}' sysbox-ce 2>/dev/null || true)
+DESIRED_VERSION="$${SYSBOX_VERSION}-0"
+if [ "$INSTALLED_VERSION" != "$DESIRED_VERSION" ]; then
+  DEB_URL="https://downloads.nestybox.com/sysbox/releases/v$${SYSBOX_VERSION}/sysbox-ce_$${SYSBOX_VERSION}-0.linux_$${ARCH}.deb"
+  log "Downloading $DEB_URL"
+  wget -q -O /tmp/sysbox-ce.deb "$DEB_URL"
+  log "Installing sysbox-ce $DESIRED_VERSION"
+  apt-get install -y -qq /tmp/sysbox-ce.deb >/dev/null
+  rm -f /tmp/sysbox-ce.deb
+else
+  log "sysbox-ce $DESIRED_VERSION already installed"
+fi
+
+# --- Configure k3s containerd to expose sysbox-runc as a runtime ---
+# k3s regenerates /var/lib/rancher/k3s/agent/etc/containerd/config.toml on every start;
+# the .tmpl file overrides this. {{ template "base" . }} expands to k3s's default config.
+TMPL_DIR=/var/lib/rancher/k3s/agent/etc/containerd
+TMPL_FILE="$TMPL_DIR/config.toml.tmpl"
+mkdir -p "$TMPL_DIR"
+
+DESIRED_TMPL=$(cat <<'TOMLEOF'
+{{ template "base" . }}
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.sysbox-runc]
+  runtime_type = "io.containerd.runc.v2"
+  runtime_root = "/run/sysbox-runc"
+  pod_annotations = ["nestybox.com/*"]
+  privileged_without_host_devices = false
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.sysbox-runc.options]
+  BinaryName = "/usr/bin/sysbox-runc"
+  SystemdCgroup = false
+TOMLEOF
+)
+
+CURRENT_TMPL=$(cat "$TMPL_FILE" 2>/dev/null || true)
+if [ "$CURRENT_TMPL" != "$DESIRED_TMPL" ]; then
+  log "Writing $TMPL_FILE"
+  printf '%s\n' "$DESIRED_TMPL" > "$TMPL_FILE"
+  RESTART_REQUIRED=1
+else
+  log "config.toml.tmpl unchanged"
+  RESTART_REQUIRED=0
+fi
+
+# --- Restart k3s if needed (picks up new containerd runtime) ---
+if [ "$RESTART_REQUIRED" = "1" ]; then
+  log "Restarting $K3S_SERVICE"
+  systemctl restart "$K3S_SERVICE"
+fi
+
+# --- Verify ---
+sleep 5
+if [ ! -x /usr/bin/sysbox-runc ]; then
+  log "ERROR: /usr/bin/sysbox-runc missing"
+  exit 1
+fi
+if ! systemctl is-active --quiet "$K3S_SERVICE"; then
+  log "ERROR: $K3S_SERVICE is not active after restart"
+  systemctl status "$K3S_SERVICE" --no-pager | tail -30 >&2
+  exit 1
+fi
+
+# Best-effort: confirm containerd knows about sysbox-runc.
+# k3s ships crictl; path varies. Try both common locations.
+CRICTL=""
+for c in /usr/local/bin/k3s /usr/bin/k3s; do
+  [ -x "$c" ] && CRICTL="$c crictl" && break
+done
+if [ -n "$CRICTL" ]; then
+  if $CRICTL info 2>/dev/null | grep -q "sysbox-runc"; then
+    log "containerd reports sysbox-runc runtime registered"
+  else
+    log "WARNING: containerd info did not mention sysbox-runc — verify with: sudo k3s crictl info"
+  fi
+fi
+
+log "Done"

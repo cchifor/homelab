@@ -1,0 +1,57 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# DO NOT put pm_api_token_secret here — set it via the TF_VAR_pm_api_token_secret env var.
+
+# --- Operator-side SSH (used by null_resource provisioners) ---
+proxmox_host_address              = "192.168.0.185"
+proxmox_host_ssh_user             = "root"
+proxmox_host_ssh_private_key_path = "~/.ssh/id_ed25519"
+
+# --- Proxmox API auth ---
+pm_api_url      = "https://192.168.0.185:8006/api2/json"
+pm_api_token_id = "tofu-prov@pve!tofu-token"
+# pm_api_token_secret is set via TF_VAR_pm_api_token_secret env var.
+pm_tls_insecure = true
+pm_node_name    = "pve"
+
+# --- Network ---
+lan_cidr    = "192.168.0.0/24"
+lan_gateway = "192.168.0.1"
+lan_dns     = ["192.168.0.1", "1.1.1.1"]
+bridge      = "vmbr0"
+# Start at 1500 for the first apply; flip to 9000 in a second apply
+# AFTER the host bond/bridge are also at 9000 (see README).
+mtu = 1500
+
+# --- NAS LXC (defaults are sane; override only if needed) ---
+# Latest stable Alpine is 3.23 (released 2025-12-03, supported through 2027-11).
+# The exact date stamp drifts as Proxmox refreshes its catalog — find yours with:
+#   pveam available --section system | grep alpine
+# Then override here:
+nas_template = "local:vztmpl/alpine-3.23-default_20260116_amd64.tar.xz"
+
+# --- Control-plane VM ---
+cp_template_name        = "debian-12-cloudinit-template"
+cp_ssh_public_key       = "ssh-ed25519 AAAA... your-key-here user@host"
+cp_ssh_private_key_path = "~/.ssh/id_ed25519"
+
+# --- Workers (4× Radxa Q6A) ---
+# Defaults match the home-cluster topology, ssh user 'c4'. Override per your boards.
+# Easiest path: don't set this here at all — let scripts/check-prereqs.sh
+# regenerate terraform.tfvars from the WORKERS env var (or its built-in default).
+# workers = {
+#   q6a-1 = { name = "q6a-1", address = "192.168.0.174", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+#   q6a-2 = { name = "q6a-2", address = "192.168.0.200", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+#   q6a-3 = { name = "q6a-3", address = "192.168.0.129", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+#   q6a-4 = { name = "q6a-4", address = "192.168.1.167", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+# }
+
+# --- v2: Sysbox / cert-manager / Rancher ---
+# sysbox_version             = "0.6.5"
+# cert_manager_chart_version = "v1.16.2"
+# rancher_chart_version      = "2.10.1"
+# rancher_hostname           = "rancher.lan"
+# Add `192.168.0.187 rancher.lan` to your operator hosts file (or local DNS) so the
+# browser resolves the name to the k3s server VM where Traefik publishes the LB IP.
+# rancher_bootstrap_password is sensitive — prefer the env var over .tfvars:
+#   $env:TF_VAR_rancher_bootstrap_password = "your-initial-admin-password"
+# Leave the var unset and a random one is generated (read with `tofu output -raw rancher_bootstrap_password`).

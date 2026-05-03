@@ -1,0 +1,125 @@
+# Multiple independent docker-in-docker pods (Pattern 1).
+# Each replica runs its own dockerd, has its own image cache PVC, and is
+# fully isolated from the others. Apply once; scale up/down as needed.
+#
+# Usage:
+#   kubectl apply -f examples/dind-pattern-1-statefulset.yaml
+#   kubectl -n dind exec -it dind-0 -- sh
+#     / # docker compose ...
+#
+# Scale to N independent environments:
+#   kubectl -n dind scale statefulset/dind --replicas=4
+#
+# Tear down (also deletes all PVCs and image caches):
+#   kubectl delete namespace dind
+#
+# Trade-offs vs Pattern 2 (one shared dockerd + many cheap clients):
+#   + Full isolation between replicas — independent images, networks, volumes
+#   + One privileged pod per replica vs one for the whole shared daemon
+#   - Image cache is per-pod (no sharing → repeated pulls cost bandwidth + disk)
+#   - HostPort collisions are possible — use Service/NodePort/Ingress to expose
+#
+# Storage:
+#   volumeClaimTemplates uses the cluster default StorageClass.
+#   With Longhorn deferred, that's k3s's local-path-provisioner — PVCs are
+#   node-local and pin each replica to whichever worker first scheduled it.
+#   When Longhorn is re-enabled, swap `storageClassName: longhorn` in below
+#   for replicated, node-failure-tolerant image caches.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dind
+---
+# Headless Service is required for StatefulSet stable per-pod DNS
+# (dind-0.dind.dind.svc.cluster.local, dind-1..., etc.). Not strictly needed
+# for Pattern 1 since pods don't talk to each other's dockerds, but the
+# StatefulSet schema mandates a serviceName so we keep it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: dind
+  namespace: dind
+spec:
+  clusterIP: None
+  selector:
+    app: dind
+  ports:
+    - name: docker
+      port: 2375
+      targetPort: 2375
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dind
+  namespace: dind
+spec:
+  serviceName: dind
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dind
+  template:
+    metadata:
+      labels:
+        app: dind
+    spec:
+      # Pin to arm64 workers — the control-plane VM is amd64 and carries the
+      # default `node-role.kubernetes.io/control-plane:NoSchedule` taint, so
+      # workloads land on workers regardless. Pinning here makes scheduling
+      # predictable and avoids the rare case where someone removes the taint.
+      # Drop this if you want pods on whatever node has resources.
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      containers:
+        - name: docker
+          image: docker:24-dind
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+            # Default storage driver (overlay2) needs the underlying FS to
+            # support it. local-path-provisioner uses the host's FS (usually
+            # ext4 → overlay2 OK). If you see "overlay not supported" errors
+            # uncomment this fallback (slower but always works):
+            # - name: DOCKER_DRIVER
+            #   value: vfs
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: storage
+              mountPath: /var/lib/docker
+            - name: workspace
+              mountPath: /workspace
+          startupProbe:
+            exec:
+              command: ["docker", "info"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 24    # up to 2 min for first dockerd boot
+          livenessProbe:
+            exec:
+              command: ["docker", "info"]
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 5Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+        # storageClassName: longhorn   # uncomment when Longhorn is re-enabled

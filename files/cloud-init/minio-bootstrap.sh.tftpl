@@ -1,0 +1,87 @@
+#!/bin/bash
+# Runs on the Proxmox host. Drives MinIO install inside the LXC via `pct exec`.
+set -euo pipefail
+
+CTID='${ctid}'
+MINIO_VERSION='${minio_version}'
+MINIO_ROOT_USER='${minio_root_user}'
+MINIO_ROOT_PASSWORD='${minio_root_pw}'
+MINIO_DATA_DIR='${minio_data_dir}'
+MINIO_BUCKET='${minio_bucket}'
+
+log() { echo "[minio-bootstrap ct=$CTID] $*"; }
+
+log "Waiting for container to be running"
+for i in $(seq 1 60); do
+  if pct status "$CTID" 2>/dev/null | grep -q "status: running"; then
+    break
+  fi
+  sleep 2
+done
+
+# Inside-container helper.
+in_ct() { pct exec "$CTID" -- /bin/sh -c "$*"; }
+
+log "Installing prerequisites in container"
+in_ct "apk update -q && apk add --no-cache wget ca-certificates openrc bash >/dev/null"
+
+if ! in_ct "[ -x /usr/local/bin/minio ]"; then
+  log "Downloading MinIO server $MINIO_VERSION"
+  in_ct "wget -q -O /usr/local/bin/minio https://dl.min.io/server/minio/release/linux-amd64/archive/minio.$MINIO_VERSION"
+  in_ct "chmod +x /usr/local/bin/minio"
+fi
+
+if ! in_ct "[ -x /usr/local/bin/mc ]"; then
+  log "Downloading mc client"
+  in_ct "wget -q -O /usr/local/bin/mc https://dl.min.io/client/mc/release/linux-amd64/mc"
+  in_ct "chmod +x /usr/local/bin/mc"
+fi
+
+log "Writing /etc/conf.d/minio"
+pct exec "$CTID" -- /bin/sh -c "mkdir -p /etc/minio /var/log/minio '$MINIO_DATA_DIR' && cat > /etc/minio/env" <<ENV
+MINIO_ROOT_USER='$MINIO_ROOT_USER'
+MINIO_ROOT_PASSWORD='$MINIO_ROOT_PASSWORD'
+MINIO_VOLUMES='$MINIO_DATA_DIR'
+MINIO_OPTS='--console-address :9001'
+ENV
+
+log "Writing OpenRC service"
+pct exec "$CTID" -- /bin/sh -c "cat > /etc/init.d/minio" <<'EOF'
+#!/sbin/openrc-run
+name="MinIO"
+command="/usr/local/bin/minio"
+command_args="server $MINIO_VOLUMES $MINIO_OPTS"
+command_background=true
+pidfile="/run/minio.pid"
+output_log="/var/log/minio/minio.log"
+error_log="/var/log/minio/minio.err"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    set -a
+    . /etc/minio/env
+    set +a
+}
+EOF
+
+in_ct "chmod +x /etc/init.d/minio"
+in_ct "rc-update add minio default >/dev/null 2>&1 || true"
+in_ct "rc-service minio restart"
+
+log "Waiting for MinIO health"
+for i in $(seq 1 30); do
+  if in_ct "wget -q -O- http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1"; then
+    break
+  fi
+  sleep 2
+done
+
+log "Configuring mc alias + creating bucket $MINIO_BUCKET"
+in_ct "/usr/local/bin/mc alias set local http://127.0.0.1:9000 '$MINIO_ROOT_USER' '$MINIO_ROOT_PASSWORD' >/dev/null"
+in_ct "/usr/local/bin/mc mb --ignore-existing local/$MINIO_BUCKET >/dev/null"
+
+log "Done"

@@ -1,0 +1,18 @@
+persistence:
+  defaultClass: true
+  defaultClassReplicaCount: ${replica_count}
+  defaultDataLocality: disabled
+  reclaimPolicy: Delete
+
+defaultSettings:
+  defaultDataPath: /var/lib/longhorn
+  # Backup target is configured separately via a kubectl_manifest applying a Longhorn
+  # BackupTarget CR (so the MinIO endpoint + creds stay out of the Helm values).
+  backupstorePollInterval: 300
+
+service:
+  ui:
+    type: ClusterIP
+
+# Storage class created by Longhorn when persistence.defaultClass=true.
+# Name comes from persistence.defaultClassReplicaCount=... (default: 'longhorn').

@@ -1,0 +1,22 @@
+# Force LF line endings on files that get executed on Linux (k3s nodes,
+# Proxmox host, workers). Bash scripts with CRLF break on Linux:
+#   /usr/bin/env: 'bash\r': No such file or directory
+# This applies regardless of each contributor's git autocrlf setting.
+
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.tftpl     text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.tf        text eol=lf
+*.tfvars    text eol=lf
+*.tfvars.example text eol=lf
+
+# Keep Markdown CRLF-tolerant — works on both, no execution risk.
+*.md        text
+
+# Binary safety (in case anyone ever drops one in)
+*.png       binary
+*.jpg       binary
+*.tar.xz    binary
+*.qcow2     binary
