@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref when a new commit lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform:
+    name: terraform fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # Pinned to match the version that produced .terraform.lock.hcl.
+          terraform_version: 1.14.7
+
+      - name: terraform fmt -check (recursive)
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init (providers only, no backend)
+        # -backend=false skips backend init; providers come from the lockfile.
+        # No real cluster contacted — this is a syntax/schema check only.
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate
+
+  scripts:
+    name: bash syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n on every script
+        run: |
+          fail=0
+          for f in scripts/*.sh; do
+            echo "::group::$f"
+            if bash -n "$f"; then
+              echo "  OK"
+            else
+              echo "::error file=$f::bash syntax error"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+      # shellcheck would catch a lot more, but it's noisy on intentional
+      # patterns (heredocs, arrays, etc.). Add later as a separate non-blocking
+      # job if it proves useful.
