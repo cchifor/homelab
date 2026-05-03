@@ -3,7 +3,7 @@ terraform {
 
   required_providers {
     proxmox = {
-      source  = "Telmate/proxmox"
+      source = "Telmate/proxmox"
       # 3.0.2-rc04+ removes VM.Monitor from the required-permissions pre-flight
       # check (PR #1382). Earlier versions reject Proxmox 9.x because PVE 9
       # removed that privilege entirely.
