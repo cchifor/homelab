@@ -13,8 +13,11 @@ concurrency:
 
 jobs:
   terraform:
-    name: terraform fmt + validate
+    name: terraform fmt + validate (platform/)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
     steps:
       - uses: actions/checkout@v6
 
@@ -36,7 +39,7 @@ jobs:
         run: terraform validate
 
   scripts:
-    name: bash syntax check
+    name: bash syntax check (platform/scripts/)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -44,7 +47,7 @@ jobs:
       - name: bash -n on every script
         run: |
           fail=0
-          for f in scripts/*.sh; do
+          for f in platform/scripts/*.sh; do
             echo "::group::$f"
             if bash -n "$f"; then
               echo "  OK"
@@ -56,6 +59,76 @@ jobs:
           done
           exit "$fail"
 
-      # shellcheck would catch a lot more, but it's noisy on intentional
-      # patterns (heredocs, arrays, etc.). Add later as a separate non-blocking
-      # job if it proves useful.
+  helm:
+    name: helm lint (apps/charts/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: helm lint each chart
+        run: |
+          shopt -s nullglob
+          charts=(apps/charts/*/)
+          if [ ${#charts[@]} -eq 0 ]; then
+            echo "No charts in apps/charts/ yet — skipping."
+            exit 0
+          fi
+          fail=0
+          for chart in "${charts[@]}"; do
+            echo "::group::helm lint $chart"
+            if helm lint "$chart"; then
+              echo "  OK"
+            else
+              echo "::error file=$chart::helm lint failed"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+      - name: helm template each chart (catches render-time errors lint misses)
+        run: |
+          shopt -s nullglob
+          for chart in apps/charts/*/; do
+            echo "::group::helm template $chart"
+            helm template "$chart" >/dev/null && echo "  OK"
+            echo "::endgroup::"
+          done
+
+  manifests:
+    name: kubectl validate (apps/manifests/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          # Match the cluster's k3s 1.30.x server.
+          version: v1.30.10
+
+      - name: kubectl client-side validate
+        run: |
+          shopt -s nullglob
+          manifests=(apps/manifests/*/*.yaml)
+          if [ ${#manifests[@]} -eq 0 ]; then
+            echo "No manifests in apps/manifests/ yet — skipping."
+            exit 0
+          fi
+          fail=0
+          for f in "${manifests[@]}"; do
+            echo "::group::kubectl --dry-run=client apply -f $f"
+            if kubectl --dry-run=client -o yaml apply -f "$f" >/dev/null; then
+              echo "  OK"
+            else
+              echo "::error file=$f::kubectl client validation failed"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
