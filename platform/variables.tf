@@ -196,7 +196,7 @@ variable "cp_sockets" {
 
 variable "cp_memory_mb" {
   type        = number
-  default     = 6144
+  default     = 12288
   description = "RAM (MB) allocated to the control-plane VM."
 }
 
