@@ -35,6 +35,37 @@ grafana:
 
   # Default datasources include Prometheus + Alertmanager auto-wired.
 
+  # === SSO via Authentik (OIDC) ===
+  # Provider + Application created by apps/scripts/authentik-oidc-bootstrap.py;
+  # client_id + client_secret read from k8s Secret `authentik-oidc` (also created
+  # by the bootstrap script).
+  extraSecretMounts:
+    - name: authentik-oidc
+      mountPath: /etc/secrets/authentik
+      secretName: authentik-oidc
+      readOnly: true
+
+  grafana.ini:
+    server:
+      root_url: https://grafana.chifor.dev
+    auth:
+      # Disable forced login redirect; the standard Grafana login still works
+      # for "admin" while the OIDC button appears alongside it.
+      oauth_auto_login: false
+    auth.generic_oauth:
+      enabled: true
+      name: Authentik
+      allow_sign_up: true
+      client_id: $__file{/etc/secrets/authentik/client-id}
+      client_secret: $__file{/etc/secrets/authentik/client-secret}
+      scopes: openid profile email
+      auth_url: https://authentik.chifor.dev/application/o/authorize/
+      token_url: https://authentik.chifor.dev/application/o/token/
+      api_url: https://authentik.chifor.dev/application/o/userinfo/
+      # Map Authentik group "Grafana Admins" → Grafana role Admin; else Viewer.
+      # Adjust to whatever group names you create in Authentik for RBAC.
+      role_attribute_path: contains(groups[*], 'Grafana Admins') && 'Admin' || 'Viewer'
+
 # === Prometheus ===
 prometheus:
   prometheusSpec:

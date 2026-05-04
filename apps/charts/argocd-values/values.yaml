@@ -68,6 +68,20 @@ configs:
     tls.minversion: "1.2"
     timeout.reconciliation: 180s
 
+    # === SSO via Authentik (OIDC) ===
+    # Provider + Application created by apps/scripts/authentik-oidc-bootstrap.py;
+    # client_id from k8s Secret `authentik-oidc` (also created by the bootstrap).
+    # client_secret is referenced via $oidc.authentik.clientSecret which ArgoCD
+    # resolves from the argocd-secret Secret (we patch it in via the secret's
+    # extra key — see argocd-values/README.md for the kubectl patch command).
+    url: https://argocd.chifor.dev
+    oidc.config: |
+      name: Authentik
+      issuer: https://authentik.chifor.dev/application/o/argocd/
+      clientID: $authentik-oidc:client-id
+      clientSecret: $authentik-oidc:client-secret
+      requestedScopes: ["openid", "profile", "email", "groups"]
+
   rbac:
     policy.default: role:readonly
     # Future: refine to "admin" only for specific Authentik group
