@@ -1,0 +1,38 @@
+# CoreDNS custom config for the homelab — adds in-cluster resolution for
+# LAN-only hostnames that don't exist in public DNS (like rancher.lan).
+#
+# K3s's stock CoreDNS Corefile ends with:
+#   import /etc/coredns/custom/*.override
+# A ConfigMap named `coredns-custom` in kube-system gets each key mounted as
+# a file under /etc/coredns/custom/, so any *.override key is picked up as an
+# additional Corefile block. CoreDNS auto-reloads (it has the `reload`
+# plugin), so changes apply within ~30 seconds without a restart.
+#
+# Apply with:  kubectl apply -f apps/manifests/coredns-custom/configmap.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  # Rancher's web UI is exposed at rancher.lan (LAN-only, no public DNS).
+  # Pods (e.g., uptime-kuma, anything that wants to monitor Rancher's /ping)
+  # need to resolve this name to the Traefik LB IP so the LE-cert-served
+  # ingress responds correctly.
+  #
+  # K3s's stock Corefile has TWO imports:
+  #   import /etc/coredns/custom/*.server    (OUTSIDE main block — zone declarations)
+  #   import /etc/coredns/custom/*.override  (INSIDE main block — directives only)
+  # We need a separate zone block for rancher.lan so it doesn't collide with
+  # the existing `hosts /etc/coredns/NodeHosts` plugin in the .:53 main block
+  # (CoreDNS allows the `hosts` plugin only ONCE per Server Block — additional
+  # hosts directives via .override would crash the pod).
+  # Solution: use a .server file with its own zone declaration.
+  rancher.lan.server: |
+    rancher.lan {
+      hosts {
+        192.168.0.187 rancher.lan
+        fallthrough
+      }
+    }
