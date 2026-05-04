@@ -149,6 +149,20 @@ Use this for apps you want reachable from your phone, a friend's laptop, or anyw
 
   The orphan CNAME is harmless (points to a tunnel route that 404s) but accumulates over time if you spin apps up and down often.
 
+### Gotcha: the operator skips headless Services
+
+If your chart creates the backing Service with `clusterIP: None` (e.g. Gitea's
+`service.http.clusterIP: None` default), the operator logs
+
+```
+extract exposures from ingress, skipped — service has None for cluster ip,
+headless service is not supported
+```
+
+…and never creates the tunnel route or DNS CNAME. Override the chart's
+`clusterIP` to an empty string (`""`) to get a real ClusterIP. The
+`apps/charts/gitea-values/values.yaml` shows the pattern.
+
 Per-app DNS CNAMEs (operator-created) override the wildcard A record from option A, so the same domain naturally splits — `rancher.chifor.dev` keeps pointing at the LAN IP, `vaultwarden.chifor.dev` flows through the tunnel.
 
 ### Picking which to use

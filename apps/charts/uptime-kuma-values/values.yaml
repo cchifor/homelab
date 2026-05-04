@@ -1,0 +1,43 @@
+# uptime-kuma values for the homelab.
+#
+# Chart: dirsigler/uptime-kuma 4.1.0 (uptime-kuma 2.3.0)
+# LAN-only with LE cert.
+# Hostname: uptime.chifor.dev
+
+# === Storage ===
+volume:
+  enabled: true
+  size: 1Gi
+  storageClassName: longhorn
+  accessMode: ReadWriteOnce
+
+# === Ingress ===
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: uptime.chifor.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts: [uptime.chifor.dev]
+      secretName: uptime-tls
+
+# === Resource limits ===
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# === Replicas ===
+replicaCount: 1
+
+# === Service ===
+service:
+  type: ClusterIP
+  port: 3001

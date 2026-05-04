@@ -1,0 +1,105 @@
+# gitea values for the homelab.
+#
+# Chart: gitea-charts/gitea 12.5.3 (gitea 1.25.5)
+# Public via Cloudflare Tunnel.
+# Hostname: gitea.chifor.dev
+
+# === Image / replicas ===
+replicaCount: 1
+
+# === Persistence ===
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: longhorn
+  accessModes: [ReadWriteOnce]
+
+# === Service / ingress ===
+service:
+  http:
+    type: ClusterIP
+    port: 3000
+    # Chart default is `clusterIP: None` (headless). The cloudflare-tunnel-
+    # ingress-controller refuses to route to headless Services ("has None for
+    # cluster ip, headless service is not supported"). Empty string lets
+    # k8s assign a real ClusterIP.
+    clusterIP: ""
+  ssh:
+    type: ClusterIP
+    port: 22
+    # SSH-via-tunnel doesn't work cleanly via Cloudflare Tunnel HTTP(S) public hostnames
+    # — keep ssh on cluster IP only, port-forward when needed:
+    #   kubectl -n gitea port-forward svc/gitea-ssh 2222:22
+    # Or use a NodePort + UniFi rules later if you want true public ssh access.
+
+ingress:
+  enabled: true
+  className: cloudflare-tunnel
+  hosts:
+    - host: gitea.chifor.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  # No tls block — Cloudflare terminates TLS at the edge.
+
+# === Gitea config ===
+gitea:
+  admin:
+    username: cchifor
+    email: chifor@gmail.com
+    # password set via --set on helm install
+  config:
+    server:
+      DOMAIN: gitea.chifor.dev
+      ROOT_URL: https://gitea.chifor.dev
+      SSH_DOMAIN: gitea.chifor.dev
+      DISABLE_SSH: false
+      SSH_PORT: 22
+    service:
+      DISABLE_REGISTRATION: true        # gate on admin invitation
+      REGISTER_EMAIL_CONFIRM: false
+      DEFAULT_KEEP_EMAIL_PRIVATE: true
+    repository:
+      DEFAULT_PRIVATE: private          # default new repos to private
+    other:
+      SHOW_FOOTER_VERSION: false        # don't leak version externally
+
+# === Subchart: PostgreSQL (HA disabled, single primary) ===
+postgresql-ha:
+  enabled: false
+
+postgresql:
+  enabled: true
+  global:
+    postgresql:
+      auth:
+        username: gitea
+        database: gitea
+        # password set via --set on helm install
+  primary:
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      size: 10Gi
+
+# === Subchart: Valkey (Redis fork) for session cache + queue ===
+# Valkey is keyed in the chart by `valkey-cluster.enabled` for HA mode.
+# We use single-node Valkey via the in-chart `redis-cluster` (poorly named — it's actually Valkey).
+valkey-cluster:
+  enabled: false
+valkey:
+  enabled: true
+  architecture: standalone
+  master:
+    persistence:
+      enabled: false
+  auth:
+    enabled: false
+
+# === Resource limits ===
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

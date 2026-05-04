@@ -1,0 +1,124 @@
+# homepage values for the homelab.
+#
+# Chart: jameswynn/homepage 2.1.0 (homepage v1.2.0)
+# LAN-only landing page with widgets pointing at deployed apps.
+# Hostname: home.chifor.dev
+
+# === Replicas ===
+replicaCount: 1
+
+# === Image ===
+image:
+  repository: ghcr.io/gethomepage/homepage
+  pullPolicy: IfNotPresent
+
+# === Service / ingress ===
+service:
+  main:
+    ports:
+      http:
+        port: 3000
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: home.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - hosts: [home.chifor.dev]
+        secretName: home-tls
+
+# === RBAC for k8s widgets ===
+# Allow homepage to query the kube API to show service status badges
+serviceAccount:
+  create: true
+
+enableRbac: true
+
+# === Configuration files (rendered into ConfigMap) ===
+config:
+  bookmarks:
+    - Admin:
+        - Rancher:
+            - abbr: RC
+              href: https://rancher.lan
+        - Longhorn (port-fwd):
+            - abbr: LH
+              href: https://github.com/longhorn/longhorn
+    - Identity:
+        - Authentik:
+            - abbr: AK
+              href: https://authentik.chifor.dev
+    - Observability:
+        - Grafana:
+            - abbr: GF
+              href: https://grafana.chifor.dev
+        - Uptime Kuma:
+            - abbr: UK
+              href: https://uptime.chifor.dev
+
+  services:
+    - Apps:
+        - Vaultwarden:
+            href: https://vaultwarden.chifor.dev
+            description: Password manager (public)
+            icon: vaultwarden.png
+        - Gitea:
+            href: https://gitea.chifor.dev
+            description: Git hosting (public)
+            icon: gitea.png
+
+    - Platform:
+        - Authentik:
+            href: https://authentik.chifor.dev
+            description: SSO / Identity Provider (public)
+            icon: authentik.png
+        - Grafana:
+            href: https://grafana.chifor.dev
+            description: Metrics + dashboards (LAN)
+            icon: grafana.png
+        - Uptime Kuma:
+            href: https://uptime.chifor.dev
+            description: Status monitoring (LAN)
+            icon: uptime-kuma.png
+        - Rancher:
+            href: https://rancher.lan
+            description: Cluster UI (LAN)
+            icon: rancher.png
+
+  widgets:
+    - resources:
+        cpu: true
+        memory: true
+        disk: /
+    - search:
+        provider: duckduckgo
+        target: _blank
+
+  settings:
+    title: chifor homelab
+    layout:
+      Apps:
+        style: row
+        columns: 4
+      Platform:
+        style: row
+        columns: 4
+    headerStyle: clean
+
+  kubernetes:
+    mode: cluster
+
+# === Resource limits ===
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi

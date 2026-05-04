@@ -1,0 +1,61 @@
+# vaultwarden values for the homelab.
+#
+# Chart: guerzon/vaultwarden 0.36.4 (vaultwarden 1.36.0)
+# Public via Cloudflare Tunnel — TLS terminated at CF edge.
+# Hostname: vaultwarden.chifor.dev
+
+domain: "https://vaultwarden.chifor.dev"
+
+# === Auth ===
+# adminToken protects /admin endpoint. Set via --set on helm install from
+# .secrets.env so it doesn't land in the committed values file.
+
+# Allow signups initially; disable after creating your first user via the UI.
+# To toggle later: helm upgrade ... --set signupsAllowed=false
+signupsAllowed: true
+# Restrict to a specific email domain if you want (e.g. signupDomains: chifor.dev)
+signupDomains: ""
+# Disable invitations for now
+invitationsAllowed: true
+
+# Disable websockets endpoint until needed (most clients work without it)
+websocket:
+  enabled: false
+
+# === Storage ===
+storage:
+  data:
+    name: data
+    size: 5Gi
+    class: longhorn
+    accessMode: ReadWriteOnce
+    keepPvc: true
+    path: /data
+
+# === Ingress ===
+ingress:
+  enabled: true
+  class: cloudflare-tunnel
+  hostname: vaultwarden.chifor.dev
+  # No tls block — Cloudflare terminates TLS at the edge.
+
+# === Resource limits ===
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# === Misc ===
+# Disable telemetry / external services
+sendsAllowed: true
+emergencyAccessAllowed: true
+orgCreationUsers: ""    # any user can create orgs (homelab default)
+
+# Vaultwarden uses SQLite by default — fine for a personal/family vault.
+# Switch to PostgreSQL only if you grow past ~10 active users.
+database:
+  type: default
+
+# Don't sleep when idle (default is 60min sleep on most charts; we want responsiveness)
