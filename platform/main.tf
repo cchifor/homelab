@@ -357,6 +357,168 @@ resource "kubectl_manifest" "selfsigned_clusterissuer" {
 }
 
 # =============================================================================
+# Let's Encrypt issuers (DNS-01 via Cloudflare)
+#
+# Apps annotate their Ingress with cert-manager.io/cluster-issuer:
+#   - letsencrypt-staging  → untrusted certs, very loose rate limits (use while developing)
+#   - letsencrypt-prod     → real certs, 50/week per registered domain (use once stable)
+#
+# Created only when var.cloudflare_api_token is set; safe to leave unset to keep
+# the cluster on selfsigned-issuer only.
+# =============================================================================
+
+locals {
+  # nonsensitive() strips the inherited-sensitivity from the comparison —
+  # safe because "is the token set?" doesn't leak the token value itself,
+  # but the plain bool is needed for `count` and for non-sensitive outputs.
+  letsencrypt_enabled = nonsensitive(var.cloudflare_api_token != null)
+}
+
+resource "kubectl_manifest" "cloudflare_api_token_secret" {
+  count = local.letsencrypt_enabled ? 1 : 0
+
+  depends_on = [helm_release.cert_manager]
+
+  sensitive_fields = ["stringData.apiToken"]
+
+  yaml_body = yamlencode({
+    apiVersion = "v1"
+    kind       = "Secret"
+    type       = "Opaque"
+    metadata = {
+      name      = "cloudflare-api-token"
+      namespace = var.cert_manager_namespace
+    }
+    stringData = {
+      apiToken = var.cloudflare_api_token
+    }
+  })
+}
+
+resource "kubectl_manifest" "letsencrypt_staging" {
+  count = local.letsencrypt_enabled ? 1 : 0
+
+  depends_on = [
+    helm_release.cert_manager,
+    kubectl_manifest.cloudflare_api_token_secret,
+  ]
+
+  yaml_body = yamlencode({
+    apiVersion = "cert-manager.io/v1"
+    kind       = "ClusterIssuer"
+    metadata = {
+      name = "letsencrypt-staging"
+    }
+    spec = {
+      acme = {
+        email  = var.acme_email
+        server = "https://acme-staging-v02.api.letsencrypt.org/directory"
+        privateKeySecretRef = {
+          name = "letsencrypt-staging-account-key"
+        }
+        solvers = [{
+          dns01 = {
+            cloudflare = {
+              apiTokenSecretRef = {
+                name = "cloudflare-api-token"
+                key  = "apiToken"
+              }
+            }
+          }
+        }]
+      }
+    }
+  })
+}
+
+resource "kubectl_manifest" "letsencrypt_prod" {
+  count = local.letsencrypt_enabled ? 1 : 0
+
+  depends_on = [
+    helm_release.cert_manager,
+    kubectl_manifest.cloudflare_api_token_secret,
+  ]
+
+  yaml_body = yamlencode({
+    apiVersion = "cert-manager.io/v1"
+    kind       = "ClusterIssuer"
+    metadata = {
+      name = "letsencrypt-prod"
+    }
+    spec = {
+      acme = {
+        email  = var.acme_email
+        server = "https://acme-v02.api.letsencrypt.org/directory"
+        privateKeySecretRef = {
+          name = "letsencrypt-prod-account-key"
+        }
+        solvers = [{
+          dns01 = {
+            cloudflare = {
+              apiTokenSecretRef = {
+                name = "cloudflare-api-token"
+                key  = "apiToken"
+              }
+            }
+          }
+        }]
+      }
+    }
+  })
+}
+
+# =============================================================================
+# Cloudflare Tunnel Ingress Controller (STRRL operator)
+#
+# Per-app workflow becomes pure GitOps:
+#   1. Deploy the app's chart with an Ingress that has:
+#        ingressClassName: cloudflare-tunnel
+#        rules: [{ host: <app>.chifor.dev, ... }]
+#   2. The operator picks it up, configures the tunnel public hostname AND
+#      the DNS CNAME automatically. Helm uninstall → operator cleans both up.
+#
+# Traffic flows for a public app:
+#   user (internet) → CF edge (TLS terminated) → tunnel → cloudflared pod
+#     (managed by the operator) → app's Service
+# =============================================================================
+
+locals {
+  cloudflare_tunnel_enabled = local.letsencrypt_enabled && var.cloudflare_account_id != null
+}
+
+resource "helm_release" "cloudflare_tunnel_ingress" {
+  count = local.cloudflare_tunnel_enabled ? 1 : 0
+
+  depends_on = [
+    null_resource.bootstrap_worker,
+    data.local_sensitive_file.kubeconfig,
+  ]
+
+  name             = "cloudflare-tunnel-ingress-controller"
+  namespace        = "cloudflare-tunnel-ingress-controller"
+  create_namespace = true
+  repository       = "https://helm.strrl.dev"
+  chart            = "cloudflare-tunnel-ingress-controller"
+  version          = var.cloudflare_tunnel_ingress_chart_version
+
+  set_sensitive {
+    name  = "cloudflare.apiToken"
+    value = var.cloudflare_api_token
+  }
+  set {
+    name  = "cloudflare.accountId"
+    value = var.cloudflare_account_id
+  }
+  set {
+    name  = "cloudflare.tunnelName"
+    value = var.cloudflare_tunnel_name
+  }
+
+  timeout = 300
+  wait    = true
+}
+
+# =============================================================================
 # v2: Rancher (web UI for cluster + workload management)
 # =============================================================================
 

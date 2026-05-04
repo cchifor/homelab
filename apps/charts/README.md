@@ -65,7 +65,7 @@ helm install <release> apps/charts/<name> --dry-run --debug
 
 ## Useful patterns for this cluster
 
-**Ingress with TLS via cert-manager + the self-signed ClusterIssuer:**
+**Ingress with TLS via cert-manager + Let's Encrypt (DNS-01 / Cloudflare):**
 
 ```yaml
 # templates/ingress.yaml
@@ -75,11 +75,15 @@ kind: Ingress
 metadata:
   name: {{ include "<chart-name>.fullname" . }}
   annotations:
-    cert-manager.io/cluster-issuer: selfsigned-issuer
+    # Default to letsencrypt-prod (real cert). Switch to letsencrypt-staging while
+    # iterating to avoid burning the prod rate-limit (50 certs/week per registered domain).
+    # Other available ClusterIssuer: selfsigned-issuer (no LE round-trip; useful when
+    # the app's hostname isn't under {{ tofu output letsencrypt_base_domain }}).
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | default "letsencrypt-prod" }}
 spec:
   ingressClassName: traefik       # k3s built-in
   tls:
-    - hosts: [ {{ .Values.ingress.host }} ]
+    - hosts: [ {{ .Values.ingress.host }} ]   # e.g. vaultwarden.chifor.dev
       secretName: {{ include "<chart-name>.fullname" . }}-tls
   rules:
     - host: {{ .Values.ingress.host }}
@@ -93,6 +97,70 @@ spec:
                 port: { number: {{ .Values.service.port }} }
 {{- end }}
 ```
+
+cert-manager watches Ingresses with this annotation, automatically creates a
+`Certificate` resource that requests `<.Values.ingress.host>` from the named
+issuer, performs the DNS-01 challenge via Cloudflare, and stores the cert in
+the named `secretName`. Traefik picks up the Secret and serves TLS — no
+per-app cert-manager configuration beyond the annotation.
+
+The `host` value just needs to be under the base domain configured in
+`platform/` (see `tofu -chdir=platform output letsencrypt_base_domain`).
+Apps don't need their own DNS records as long as the wildcard A record
+(`*.<base_domain>` → Traefik LB IP) is in place.
+
+**Ingress for a public app (Cloudflare Tunnel — fully automated):**
+
+For apps exposed via Cloudflare Tunnel, the Ingress is simpler — no
+cert-manager annotation, no `tls:` block — and the **only difference** from
+a LAN Ingress is the `ingressClassName: cloudflare-tunnel`. The operator
+(`cloudflare-tunnel-ingress-controller` in the platform) watches Ingresses
+of this class and auto-configures the tunnel public hostname + DNS CNAME:
+
+```yaml
+# templates/ingress.yaml — public-app variant
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "<chart-name>.fullname" . }}
+spec:
+  ingressClassName: cloudflare-tunnel    # ← operator picks this up
+  rules:
+    - host: {{ .Values.ingress.host }}   # e.g. vaultwarden.chifor.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "<chart-name>.fullname" . }}
+                port: { number: {{ .Values.service.port }} }
+{{- end }}
+```
+
+`helm install` → operator detects the Ingress → adds the public hostname
+to the tunnel → creates the DNS CNAME → traffic flows: user → CF edge
+(TLS terminated, real cert) → tunnel → cloudflared → your pod's Service.
+
+`helm uninstall` → operator removes the public hostname AND the DNS CNAME.
+Pure GitOps, zero dashboard interaction.
+
+A reasonable chart pattern is to gate this on a values flag so the same
+chart can deploy LAN-only or public depending on the install:
+
+```yaml
+# values.yaml
+ingress:
+  enabled:  true
+  host:     ""             # required from caller
+  exposure: lan            # "lan" → traefik + LE; "public" → cloudflare-tunnel
+  clusterIssuer: letsencrypt-prod   # only used when exposure=lan
+```
+
+Then `templates/ingress.yaml` branches on `.Values.ingress.exposure`:
+- `lan` → `ingressClassName: traefik` + LE annotation + `tls:` block
+- `public` → `ingressClassName: cloudflare-tunnel` + no annotation, no `tls:`
 
 **PVC using the default StorageClass (Longhorn):**
 

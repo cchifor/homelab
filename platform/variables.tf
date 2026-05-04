@@ -398,6 +398,63 @@ variable "rancher_bootstrap_password" {
 }
 
 # =============================================================================
+# Let's Encrypt (DNS-01 via Cloudflare)
+#
+# All three resources here (Secret + 2 ClusterIssuers in main.tf) are gated on
+# var.cloudflare_api_token being non-null — leave it null to skip LE entirely
+# and keep using the selfsigned-issuer ClusterIssuer.
+# =============================================================================
+
+variable "cloudflare_api_token" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "Cloudflare API token used by BOTH cert-manager (DNS-01 LE challenge) AND the cloudflare-tunnel-ingress-controller. Required scopes: Zone:DNS:Edit + Zone:Zone:Read on letsencrypt_base_domain, plus Account:Cloudflare Tunnel:Edit (only if you want the tunnel operator). Source via TF_VAR_cloudflare_api_token; never commit to .tfvars. Leave null to skip both LE issuers AND the tunnel operator."
+}
+
+variable "acme_email" {
+  type        = string
+  default     = "chifor@gmail.com"
+  description = "Contact email for Let's Encrypt account registration. LE sends cert expiry warnings here."
+}
+
+variable "letsencrypt_base_domain" {
+  type        = string
+  default     = "chifor.dev"
+  description = "Base domain managed in Cloudflare. Surfaced as an output for convenience; the issuers themselves are domain-agnostic — apps request whatever hostname they need under this domain in their Ingress tls block."
+}
+
+# =============================================================================
+# Cloudflare Tunnel Ingress Controller (STRRL/cloudflare-tunnel-ingress-controller)
+#
+# Operator that watches Ingresses with `ingressClassName: cloudflare-tunnel`
+# and auto-configures BOTH the Cloudflare Tunnel's Public Hostnames AND the
+# DNS CNAMEs. Per-app exposure becomes pure GitOps: just deploy a chart with
+# the right ingressClassName, and the operator handles tunnel + DNS for you.
+#
+# Created only when both var.cloudflare_api_token AND var.cloudflare_account_id
+# are set; safe to leave unset to skip (cluster keeps working LAN-only).
+# =============================================================================
+
+variable "cloudflare_account_id" {
+  type        = string
+  default     = null
+  description = "Cloudflare account ID (find in CF dashboard right sidebar on any zone's Overview page, or via `wrangler whoami`). Required for the tunnel operator (tunnels are account-scoped). Leave null to skip the tunnel operator entirely (LE issuers still install if cloudflare_api_token is set)."
+}
+
+variable "cloudflare_tunnel_name" {
+  type        = string
+  default     = "homelab"
+  description = "Name of the tunnel the operator creates. Will appear in CF dashboard under Networks → Tunnels."
+}
+
+variable "cloudflare_tunnel_ingress_chart_version" {
+  type        = string
+  default     = "0.0.21"
+  description = "STRRL/cloudflare-tunnel-ingress-controller Helm chart version. See https://github.com/STRRL/cloudflare-tunnel-ingress-controller/releases."
+}
+
+# =============================================================================
 # Local artefacts (kubeconfig + token files written by null_resources)
 # =============================================================================
 

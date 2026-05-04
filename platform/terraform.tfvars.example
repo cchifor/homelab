@@ -55,3 +55,27 @@ cp_ssh_private_key_path = "~/.ssh/id_ed25519"
 # rancher_bootstrap_password is sensitive — prefer the env var over .tfvars:
 #   $env:TF_VAR_rancher_bootstrap_password = "your-initial-admin-password"
 # Leave the var unset and a random one is generated (read with `tofu output -raw rancher_bootstrap_password`).
+
+# --- Let's Encrypt (DNS-01 via Cloudflare) ---
+# acme_email              = "chifor@gmail.com"
+# letsencrypt_base_domain = "chifor.dev"
+# cloudflare_api_token is sensitive — set via env var, NEVER commit to .tfvars:
+#   $env:TF_VAR_cloudflare_api_token = "<paste-cloudflare-api-token>"
+# Token needs Zone:Read + DNS:Edit on letsencrypt_base_domain only.
+# Create at https://dash.cloudflare.com/profile/api-tokens (Custom token).
+# Leave unset to skip LE issuers entirely (cluster keeps using selfsigned-issuer).
+# Also requires a wildcard A record in your DNS provider:
+#   *.chifor.dev → 192.168.0.187 (DNS-only / gray cloud — Cloudflare proxy can't reach a LAN IP)
+
+# --- Cloudflare Tunnel Ingress Controller (STRRL operator) ---
+# cloudflare_tunnel_name                  = "homelab"
+# cloudflare_tunnel_ingress_chart_version = "0.0.21"
+# cloudflare_account_id is the only NEW input vs the LE setup above:
+#   $env:TF_VAR_cloudflare_account_id = "<32-char-hex>"
+# Find your account ID in CF dashboard → right sidebar of any zone's Overview page.
+# The cloudflare_api_token (above) is REUSED but its scope must be expanded:
+#   - Zone:DNS:Edit   on chifor.dev   (already set for LE)
+#   - Zone:Zone:Read  on chifor.dev   (already set for LE)
+#   - Account:Cloudflare Tunnel:Edit  (NEW — add this for the operator)
+# Edit the existing token at https://dash.cloudflare.com/profile/api-tokens.
+# Leave cloudflare_account_id null to skip the tunnel operator (LAN-only operation).

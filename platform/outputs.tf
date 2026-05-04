@@ -67,3 +67,35 @@ output "rancher_bootstrap_password" {
   description = "Initial admin password for Rancher. Read with `tofu output -raw rancher_bootstrap_password`. Rancher will prompt to set a new password on first login."
   sensitive   = true
 }
+
+# --- Let's Encrypt ---
+
+output "letsencrypt_issuers" {
+  value = local.letsencrypt_enabled ? {
+    staging = "letsencrypt-staging"
+    prod    = "letsencrypt-prod"
+    } : {
+    note = "Disabled — set TF_VAR_cloudflare_api_token to enable."
+  }
+  description = "ClusterIssuer names. Apps annotate their Ingress with cert-manager.io/cluster-issuer: letsencrypt-prod (or letsencrypt-staging while developing — staging certs are untrusted but rate limits are very loose)."
+}
+
+output "letsencrypt_base_domain" {
+  value       = var.letsencrypt_base_domain
+  description = "Base domain LE certs are issued under. Apps under this domain get auto-renewed certs by referencing one of the letsencrypt_issuers in their Ingress annotation."
+}
+
+# --- Cloudflare Tunnel ---
+
+output "cloudflare_tunnel_status" {
+  value = local.cloudflare_tunnel_enabled ? {
+    operator_pods    = "kubectl -n cloudflare-tunnel-ingress-controller get pods"
+    operator_logs    = "kubectl -n cloudflare-tunnel-ingress-controller logs -l app.kubernetes.io/name=cloudflare-tunnel-ingress-controller --tail=50"
+    cloudflared_logs = "kubectl -n cloudflare-tunnel-ingress-controller logs -l app=cloudflared --tail=50"
+    dashboard        = "https://one.dash.cloudflare.com → Networks → Tunnels → ${var.cloudflare_tunnel_name} (auto-created by operator)"
+    expose_an_app    = "Add `ingressClassName: cloudflare-tunnel` to the app's Ingress (and the public host under .Values.ingress.host). Operator handles the tunnel hostname + DNS automatically. helm uninstall → operator cleans both up."
+    } : {
+    note = "Disabled — set TF_VAR_cloudflare_api_token (with Account:Cloudflare Tunnel:Edit scope) AND TF_VAR_cloudflare_account_id."
+  }
+  description = "Cloudflare Tunnel ingress operator status. Per-app exposure: just set ingressClassName: cloudflare-tunnel on the app's Ingress."
+}
