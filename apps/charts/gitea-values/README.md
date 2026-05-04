@@ -57,24 +57,34 @@ git clone https://gitea.chifor.dev/cchifor/<repo>.git
 
 The chart sets `service.http.clusterIP: None` by default (intended for HA setups), which the cloudflare-tunnel-ingress-controller refuses to route to. Our values override with `service.http.clusterIP: ""` to get a real ClusterIP. If the operator log shows `service gitea/gitea-http has None for cluster ip, headless service is not supported`, this override is missing or got reverted.
 
-## Authentik OIDC integration (manual, optional)
+## Authentik OIDC integration
 
-Gitea natively supports OAuth2/OIDC providers via the UI:
+The Authentik provider + application + k8s Secret were created automatically by `apps/scripts/authentik-oidc-bootstrap.py`. The Authentik-side work is **already done**. What remains is one Gitea-side step (the chart can't add an authentication source via values; Gitea requires this via CLI or web UI):
 
-1. In **Authentik** admin (https://authentik.chifor.dev/if/admin/):
-   - Create an **OAuth2/OpenID Provider** with:
-     - Authorization flow: implicit consent (or default)
-     - Client type: Confidential
-     - Redirect URIs: `https://gitea.chifor.dev/user/oauth2/Authentik/callback`
-   - Note the `client_id` and `client_secret`
-   - Create an **Application** linked to that provider, slug `gitea`
-2. In **Gitea** admin (Site Administration → Authentication Sources):
-   - Add OAuth2 source:
-     - Authentication Name: `Authentik`
-     - OAuth2 Provider: `OpenID Connect`
-     - Client ID + Client Secret from above
-     - OpenID Connect Auto Discovery URL: `https://authentik.chifor.dev/application/o/gitea/.well-known/openid-configuration`
-3. Login flow: now Gitea's login page shows a "Sign in with Authentik" button.
+```bash
+# Pull the OIDC client_id and client_secret from the bootstrap-created Secret
+CLIENT_ID=$(kubectl -n gitea get secret authentik-oidc -o jsonpath='{.data.client-id}' | base64 -d)
+CLIENT_SECRET=$(kubectl -n gitea get secret authentik-oidc -o jsonpath='{.data.client-secret}' | base64 -d)
+
+# Run gitea admin CLI inside the running pod to add the OAuth2 source
+kubectl -n gitea exec -it $(kubectl -n gitea get pod -l app.kubernetes.io/name=gitea -o name | head -1) -- gitea admin auth add-oauth \
+  --name "Authentik" \
+  --provider openidConnect \
+  --key "$CLIENT_ID" \
+  --secret "$CLIENT_SECRET" \
+  --auto-discover-url "https://authentik.chifor.dev/application/o/gitea/.well-known/openid-configuration" \
+  --scopes "openid,profile,email" \
+  --skip-local-2fa
+```
+
+After this, Gitea's login page shows a "Sign in with Authentik" button next to the username/password form. Existing Gitea users can link their account by signing in via Authentik once. New users (those who don't exist in Gitea yet) get auto-created on first OIDC sign-in.
+
+To remove or re-add the auth source later:
+
+```bash
+kubectl -n gitea exec -it ... -- gitea admin auth list                      # find the ID
+kubectl -n gitea exec -it ... -- gitea admin auth delete --id <ID>         # remove
+```
 
 ## Uninstall
 

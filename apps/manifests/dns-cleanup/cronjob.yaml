@@ -1,0 +1,195 @@
+# DNS cleanup CronJob — addresses the gap left by cloudflare-tunnel-ingress-
+# controller, which removes tunnel hostname rules on Ingress deletion but
+# leaves orphaned DNS CNAMEs in Cloudflare. This Job reconciles every hour:
+#
+#   1. Read all Ingresses with class=cloudflare-tunnel across the cluster
+#   2. Read all DNS records for chifor.dev that point at *.cfargotunnel.com
+#   3. Delete any tunnel CNAME whose hostname is NOT in the Ingress list
+#
+# Before applying:
+#   kubectl create namespace dns-cleanup
+#   kubectl label namespace dns-cleanup chifor.dev/tier=platform --overwrite
+#   kubectl -n dns-cleanup create secret generic cloudflare-creds \
+#     --from-literal=api-token="$TF_VAR_cloudflare_api_token" \
+#     --from-literal=zone-id="fcaf7d56ad2c3490af47b68a1c640b4e"
+#   kubectl apply -f apps/manifests/dns-cleanup/cronjob.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dns-cleanup
+  labels:
+    chifor.dev/tier: platform
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dns-cleanup
+  namespace: dns-cleanup
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dns-cleanup-ingress-reader
+rules:
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [list, get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dns-cleanup-ingress-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dns-cleanup-ingress-reader
+subjects:
+  - kind: ServiceAccount
+    name: dns-cleanup
+    namespace: dns-cleanup
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dns-cleanup-script
+  namespace: dns-cleanup
+data:
+  reconcile.py: |
+    #!/usr/bin/env python3
+    """Delete orphaned cloudflare-tunnel CNAMEs.
+
+    Runs as a k8s Job. Reads:
+    - All Ingresses cluster-wide with class=cloudflare-tunnel
+    - All DNS records under the configured zone
+    Deletes any CNAME whose target ends in .cfargotunnel.com and whose name
+    is NOT covered by a matching Ingress hostname.
+    """
+    import json, os, sys, urllib.request, urllib.error
+
+    CF_TOKEN = os.environ["CF_API_TOKEN"]
+    ZONE_ID = os.environ["CF_ZONE_ID"]
+
+    def cf(method, path, body=None):
+        req = urllib.request.Request(
+            f"https://api.cloudflare.com/client/v4{path}",
+            method=method,
+            data=(json.dumps(body).encode() if body else None),
+            headers={
+                "Authorization": f"Bearer {CF_TOKEN}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            return json.loads(e.read().decode())
+
+    def k8s_ingresses_with_tunnel_class():
+        # Read in-cluster service account token + CA
+        token = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
+        ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        host = os.environ["KUBERNETES_SERVICE_HOST"]
+        port = os.environ["KUBERNETES_SERVICE_PORT"]
+        import ssl
+        ctx = ssl.create_default_context(cafile=ca)
+        req = urllib.request.Request(
+            f"https://{host}:{port}/apis/networking.k8s.io/v1/ingresses",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+            data = json.loads(r.read().decode())
+        hosts = set()
+        for ing in data.get("items", []):
+            spec = ing.get("spec", {})
+            cls = spec.get("ingressClassName")
+            ann_cls = ing.get("metadata", {}).get("annotations", {}).get(
+                "kubernetes.io/ingress.class"
+            )
+            if cls != "cloudflare-tunnel" and ann_cls != "cloudflare-tunnel":
+                continue
+            for rule in spec.get("rules", []):
+                if h := rule.get("host"):
+                    hosts.add(h)
+        return hosts
+
+    def main():
+        live_hosts = k8s_ingresses_with_tunnel_class()
+        print(f"Found {len(live_hosts)} live tunnel Ingress hostnames: {sorted(live_hosts)}")
+
+        page = cf("GET", f"/zones/{ZONE_ID}/dns_records?type=CNAME&per_page=200")
+        if not page.get("success"):
+            print(f"CF API list failed: {page.get('errors')}", file=sys.stderr)
+            sys.exit(1)
+
+        orphans = []
+        for rec in page.get("result", []):
+            content = rec.get("content", "")
+            name = rec.get("name", "")
+            if not content.endswith(".cfargotunnel.com"):
+                continue
+            if name in live_hosts:
+                continue
+            orphans.append(rec)
+
+        if not orphans:
+            print("No orphaned tunnel CNAMEs.")
+            return
+
+        print(f"Deleting {len(orphans)} orphan(s):")
+        for rec in orphans:
+            print(f"  - {rec['name']} (id {rec['id']})")
+            r = cf("DELETE", f"/zones/{ZONE_ID}/dns_records/{rec['id']}")
+            if not r.get("success"):
+                print(f"    DELETE FAILED: {r.get('errors')}", file=sys.stderr)
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dns-cleanup
+  namespace: dns-cleanup
+spec:
+  # Reconcile hourly. Adjust if you spin tunnel-routed apps up and down often.
+  schedule: "0 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: dns-cleanup
+          restartPolicy: OnFailure
+          containers:
+            - name: reconcile
+              image: python:3.13-alpine
+              command:
+                - python
+                - /scripts/reconcile.py
+              env:
+                - name: CF_API_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudflare-creds
+                      key: api-token
+                - name: CF_ZONE_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: cloudflare-creds
+                      key: zone-id
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits:   { memory: 128Mi }
+          volumes:
+            - name: script
+              configMap:
+                name: dns-cleanup-script
+                defaultMode: 0755

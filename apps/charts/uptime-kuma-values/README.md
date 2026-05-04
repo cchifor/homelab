@@ -21,14 +21,18 @@ helm upgrade --install uptime-kuma dirsigler/uptime-kuma \
   --timeout 5m
 ```
 
-## First setup
+## First setup (manual, can't automate — admin user creation is web-only)
 
-1. Browse https://uptime.chifor.dev — you'll be prompted to create the admin account on first launch (no default credentials).
-2. After creation, add monitors via the UI:
-   - **HTTP(s)** → check URL (most apps)
-   - **TCP Port** → check raw service
-   - **Push** → external services ping uptime-kuma when alive
-3. Configure notification channels in **Settings → Notifications** (email, webhook, ntfy, etc.)
+Uptime Kuma has no API key bootstrap; the admin account is created via the web wizard on first launch and cannot be set via env var or config file. Steps:
+
+1. Browse **https://uptime.chifor.dev** — you'll see the "Create your admin account" wizard.
+2. Set username + password. **Save these in Vaultwarden.**
+3. After login, add monitors via the UI (next section).
+4. Configure notification channels in **Settings → Notifications** (email, webhook, ntfy, etc.) — pick at least one so alerts actually reach you.
+
+**Once admin is created**, the Uptime Kuma API can be scripted via the `uptime-kuma-api` Python package (`pip install uptime-kuma-api`). A starter automation script could batch-add the monitors below, but the initial admin must be created manually first.
+
+## Add the homelab's monitors
 
 Useful starter monitors for this homelab:
 
