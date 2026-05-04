@@ -78,8 +78,9 @@ The Authentik provider + application + k8s Secret were created automatically by 
      --from=secret/authentik-oidc \
      --keys=client-id,client-secret \
      --prefix=OIDC_
-   # Result: OIDC_CLIENT-ID + OIDC_CLIENT-SECRET (note dash, not underscore —
-   # rename to OIDC_CLIENT_ID/SECRET in settings.js if you prefer underscores).
+   # kubectl uppercases keys and rewrites dashes to underscores, so the
+   # actual env vars are OIDC_CLIENT_ID and OIDC_CLIENT_SECRET (matching
+   # the snippet above).
    ```
 
 4. **Restart the pod** so Node-RED reloads settings.js:
@@ -88,6 +89,31 @@ The Authentik provider + application + k8s Secret were created automatically by 
    ```
 
 The login page at `https://nodered.chifor.dev` now shows the "Sign in with Authentik" button. **Caveat:** anyone who completes the OIDC flow gets full editor permissions (`'*'`). Tighten the `users()` function with allowlist logic or a group claim check if Node-RED ever moves off chart-only status.
+
+### Recovery: if a settings.js typo crashloops the pod
+
+`kubectl exec` against a CrashLoopBackOff pod is unreliable (the container is up too briefly between crashes). Detach the PVC by scaling to 0, then mount it on a transient debug pod:
+
+```bash
+kubectl -n node-red scale deploy/node-red --replicas=0
+kubectl -n node-red rollout status deploy/node-red --timeout=60s
+
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata: { name: nr-fix, namespace: node-red }
+spec:
+  restartPolicy: Never
+  containers:
+    - { name: shell, image: busybox:1.36, command: ["sh","-c","sleep 3600"], volumeMounts: [{ name: data, mountPath: /data }] }
+  volumes:
+    - { name: data, persistentVolumeClaim: { claimName: node-red-data } }
+EOF
+kubectl -n node-red wait --for=condition=Ready pod/nr-fix --timeout=2m
+kubectl -n node-red exec nr-fix -- vi /data/settings.js   # fix the typo
+kubectl -n node-red delete pod nr-fix --grace-period=0 --force
+kubectl -n node-red scale deploy/node-red --replicas=1
+```
 
 ## Tear down completely
 
