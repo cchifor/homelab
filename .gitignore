@@ -28,3 +28,6 @@ Thumbs.db
 
 # Provider lockfile is intentionally COMMITTED:
 #   .terraform.lock.hcl  <-- not ignored, that's the whole point of pinning
+
+# Per-chart generated secrets (apps/charts/*-values/.secrets.env)
+**/.secrets.env

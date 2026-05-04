@@ -1,0 +1,101 @@
+# kube-prometheus-stack values for the homelab.
+#
+# Chart: prometheus-community/kube-prometheus-stack 84.5.0
+# Grafana exposed LAN-only (admin tool) at https://grafana.chifor.dev with a
+# real LE cert via cert-manager. Prometheus and Alertmanager use port-forward
+# only — no ingress, no public exposure.
+
+# === Grafana ===
+grafana:
+  enabled: true
+  defaultDashboardsTimezone: browser
+  # adminPassword set via --set on helm install (random per cluster)
+
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: longhorn
+    size: 5Gi
+    accessModes: [ReadWriteOnce]
+
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - grafana.chifor.dev
+    tls:
+      - hosts: [grafana.chifor.dev]
+        secretName: grafana-tls
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { memory: 512Mi }
+
+  # Default datasources include Prometheus + Alertmanager auto-wired.
+
+# === Prometheus ===
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: "40GiB"
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 50Gi
+    # Honor every PodMonitor / ServiceMonitor by default; without these the
+    # operator only watches resources with a release-matching label, which
+    # silently drops third-party monitors.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 200m, memory: 1Gi }
+      limits:   { memory: 2Gi }
+
+  # No ingress — port-forward when needed:
+  #   kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090:9090
+  ingress:
+    enabled: false
+
+# === Alertmanager ===
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits:   { memory: 256Mi }
+
+  ingress:
+    enabled: false
+
+# === Component metrics scrapers ===
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true
+
+# === Tighten control-plane scraping for k3s (not vanilla kubeadm) ===
+# k3s embeds these inside the k3s-server process and doesn't expose them on
+# the standard ports — disable the default scrapers to avoid noise.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false

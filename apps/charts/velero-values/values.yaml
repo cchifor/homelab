@@ -1,0 +1,60 @@
+# Velero values for the homelab.
+#
+# Chart: vmware-tanzu/velero 12.0.1
+# Backups go to the cluster's MinIO (LXC at 192.168.0.186:9000), bucket "velero".
+# AWS plugin is the S3-compatible plugin — works with MinIO via s3ForcePathStyle.
+#
+# Note: volume snapshots are NOT enabled here. Longhorn has its own backup
+# target pointing at a different MinIO bucket (managed by platform/). Velero
+# here only backs up k8s objects (Deployments, Services, Secrets, PVCs+PVs
+# metadata, etc.) — not the contents of the volumes themselves. That's fine
+# for app-state recovery; for full data restore, rely on Longhorn's
+# bucket-backed backups.
+
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.10.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: velero
+      default: true
+      config:
+        region: minio
+        s3ForcePathStyle: "true"
+        s3Url: http://192.168.0.186:9000
+
+snapshotsEnabled: false
+defaultVolumesToFsBackup: false
+
+# Credentials provided via pre-created Secret (see README.md). Don't bake
+# them into the chart values — `helm install` will reference the existing
+# secret by name.
+credentials:
+  useSecret: true
+  existingSecret: velero-minio-creds
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits:   { memory: 512Mi }
+
+# A daily 03:00 backup of all namespaces, retained for 30 days. Tweak per app
+# as needed by adding more Schedule resources after the initial install.
+schedules:
+  daily-cluster:
+    disabled: false
+    schedule: "0 3 * * *"
+    template:
+      ttl: "720h"   # 30 days
+      includedNamespaces: ["*"]
+      excludedNamespaces:
+        - kube-system
+        - kube-public
+        - kube-node-lease
+      storageLocation: default

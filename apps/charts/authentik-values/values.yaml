@@ -1,0 +1,67 @@
+# authentik upstream chart values for the homelab.
+#
+# Chart: authentik/authentik (chart version 2026.2.2 at install time)
+# Public via Cloudflare Tunnel — TLS terminated at CF edge, no cert-manager
+# annotation needed. Hostname: authentik.chifor.dev
+#
+# Secrets (secret_key, pg password, bootstrap admin password+token) are
+# pre-generated and stored in apps/charts/authentik-values/.secrets.env
+# (gitignored). They are passed via --set on `helm install` so they never
+# land in this committed values file.
+
+authentik:
+  log_level: info
+  error_reporting:
+    enabled: false
+  email:
+    # Email is optional; left disabled until SMTP is wired up.
+    host: ""
+    port: 587
+    from: "authentik@chifor.dev"
+
+server:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits:   { memory: 1Gi }
+  ingress:
+    enabled: true
+    ingressClassName: cloudflare-tunnel
+    hosts:
+      - authentik.chifor.dev
+    # No tls block — Cloudflare terminates TLS at the edge.
+
+worker:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { memory: 1Gi }
+
+# Subchart: PostgreSQL (upstream image, not Bitnami)
+postgresql:
+  enabled: true
+  auth:
+    database: authentik
+    username: authentik
+    # password set via --set on helm install
+  primary:
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      size: 10Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits:   { memory: 1Gi }
+
+# Subchart: Redis (upstream image, not Bitnami)
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false   # session data is ephemeral
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits:   { memory: 256Mi }
