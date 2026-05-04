@@ -104,6 +104,35 @@ The library lives at PVC `immich-library` (100 GiB initially — expand by editi
 
 5. **earthdistance + cube need superuser**: the `immich` user can't `CREATE EXTENSION` for those — they must be created via `postInitApplicationSQL` (which CNPG runs as `postgres`/superuser).
 
+## Authentik OIDC integration
+
+The Authentik provider + application + k8s Secret were created automatically by `apps/scripts/authentik-oidc-bootstrap.py`. Three redirect URIs are registered: web (`/auth/login`, `/user-settings`) and the mobile app's custom URI scheme (`app.immich:///oauth-callback`).
+
+What remains is one Immich-side step (Immich 2.x stores OAuth config in the database, not env vars — must be configured via the admin UI or API):
+
+```bash
+# Pull the values you'll paste into the UI
+kubectl -n immich get secret authentik-oidc -o jsonpath='{.data.client-id}' | base64 -d ; echo
+kubectl -n immich get secret authentik-oidc -o jsonpath='{.data.client-secret}' | base64 -d ; echo
+kubectl -n immich get secret authentik-oidc -o jsonpath='{.data.issuer-url}' | base64 -d ; echo
+```
+
+Browse https://immich.chifor.dev → **Administration → Settings → Authentication → OAuth**, then fill in:
+
+| Field | Value |
+|---|---|
+| Enabled | on |
+| Issuer URL | (from secret — `https://authentik.chifor.dev/application/o/immich/`) |
+| Client ID | (from secret) |
+| Client Secret | (from secret) |
+| Profile signing algorithm | `RS256` |
+| Scope | `openid email profile` |
+| Storage label claim | `preferred_username` |
+| Auto register | on (creates the Immich user on first sign-in) |
+| Button text | `Login with Authentik` |
+
+Save. The login page now shows the Authentik button alongside the local-account login form. Mobile app users will see the same button after pulling the new server config.
+
 ## Tear down
 
 ```bash

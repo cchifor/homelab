@@ -53,11 +53,34 @@ def api(path: str, method: str = "GET", json_body: Optional[dict] = None) -> dic
 
 
 def find_or_make(endpoint: str, search_field: str, search_value: str, create_payload: dict) -> dict:
-    """GET endpoint?search_field=value ==> return first hit, else POST create_payload."""
+    """GET endpoint?search_field=value ==> return first hit, else POST create_payload.
+
+    Caveat: only works for fields that Authentik actually treats as filters
+    (e.g. /providers/oauth2/ honours `?name=`). The /core/applications/
+    endpoint silently ignores `?slug=` and returns the full unfiltered list,
+    which would make this helper falsely match the first existing app —
+    use get_or_make_application() instead for that endpoint.
+    """
     existing = api(f"{endpoint}?{search_field}={search_value}").get("results", [])
     if existing:
         return existing[0]
     return api(endpoint, "POST", create_payload)
+
+
+def get_or_make_application(slug: str, create_payload: dict) -> dict:
+    """GET /core/applications/<slug>/ or POST to create.
+
+    Authentik exposes applications as a slug-keyed resource, and the
+    list endpoint's `?slug=` filter is silently ignored — so this is the
+    only reliable exact-match lookup.
+    """
+    url = f"{AUTHENTIK_URL}/api/v3/core/applications/{slug}/"
+    r = S.get(url, timeout=30)
+    if r.status_code == 200:
+        return r.json()
+    if r.status_code == 404:
+        return api("/core/applications/", "POST", create_payload)
+    sys.exit(f"ERROR: GET {url} ==> {r.status_code}\n{r.text[:500]}")
 
 
 def get_flow(slug: str) -> str:
@@ -128,8 +151,8 @@ def upsert_oauth_app(slug: str, name: str, redirect_uris: list[str],
                        {"redirect_uris": desired_redirect_uris})
 
     # 2. Application linked to provider
-    app = find_or_make(
-        "/core/applications/", "slug", slug,
+    app = get_or_make_application(
+        slug,
         {
             "name": name,
             "slug": slug,
@@ -185,6 +208,35 @@ APPS = [
         "name": "Vaultwarden",
         "redirect_uris": ["https://vaultwarden.chifor.dev/identity/connect/oidc-signin"],
         "namespace": "vaultwarden",
+    },
+    {
+        "slug": "immich",
+        "name": "Immich",
+        # Web flow + Immich mobile app (custom URI scheme registered with the
+        # OS-level handler). Both must be present or mobile sign-in fails.
+        "redirect_uris": [
+            "https://immich.chifor.dev/auth/login",
+            "https://immich.chifor.dev/user-settings",
+            "app.immich:///oauth-callback",
+        ],
+        "namespace": "immich",
+    },
+    {
+        "slug": "paperless",
+        "name": "Paperless-ngx",
+        # django-allauth pattern. The `authentik` segment matches the provider
+        # key in PAPERLESS_SOCIALACCOUNT_PROVIDERS (see paperless README).
+        # Trailing slash is required — Django redirects /callback to /callback/.
+        "redirect_uris": ["https://paperless.chifor.dev/accounts/oidc/authentik/login/callback/"],
+        "namespace": "paperless",
+    },
+    {
+        "slug": "node-red",
+        "name": "Node-RED",
+        # passport-openidconnect default callback when configured via Node-RED's
+        # adminAuth in settings.js (see node-red README).
+        "redirect_uris": ["https://nodered.chifor.dev/auth/strategy/callback"],
+        "namespace": "node-red",
     },
 ]
 

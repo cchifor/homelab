@@ -92,6 +92,26 @@ For a permanent fix, either fork the chart with the hardcoded env removed,
 or use a helm post-render script to drop the offending env entries before
 they reach the cluster.
 
+## Authentik OIDC integration
+
+The Authentik provider + application + k8s Secret were created automatically by `apps/scripts/authentik-oidc-bootstrap.py`. Paperless 2.x uses django-allauth's `openid_connect` provider; the wiring is two env vars on the Deployment.
+
+```bash
+CLIENT_ID=$(kubectl -n paperless get secret authentik-oidc -o jsonpath='{.data.client-id}' | base64 -d)
+CLIENT_SECRET=$(kubectl -n paperless get secret authentik-oidc -o jsonpath='{.data.client-secret}' | base64 -d)
+
+# PAPERLESS_SOCIALACCOUNT_PROVIDERS is a JSON blob; the provider_id MUST be
+# `authentik` to match the slug in the Authentik-side redirect URI
+# (https://paperless.chifor.dev/accounts/oidc/authentik/login/callback/).
+kubectl -n paperless set env deploy/paperless-ngx \
+  PAPERLESS_APPS=allauth.socialaccount.providers.openid_connect \
+  "PAPERLESS_SOCIALACCOUNT_PROVIDERS={\"openid_connect\":{\"APPS\":[{\"provider_id\":\"authentik\",\"name\":\"Authentik\",\"client_id\":\"$CLIENT_ID\",\"secret\":\"$CLIENT_SECRET\",\"settings\":{\"server_url\":\"https://authentik.chifor.dev/application/o/paperless/.well-known/openid-configuration\"}}]}}"
+```
+
+`kubectl set env` triggers a rollout. The login page now shows "Sign in with Authentik" alongside the local-account form. Existing Paperless users can link their account via Profile → Connected Accounts; new users are auto-provisioned on first sign-in (controlled by Paperless' `PAPERLESS_DISABLE_REGULAR_LOGIN`/`PAPERLESS_REDIRECT_LOGIN_TO_SSO` flags if you want to make SSO mandatory).
+
+**Same caveat as the chart-bug section above: helm upgrade clobbers `kubectl set env` patches** — re-run after every chart upgrade.
+
 ## Quirks
 
 - **Ingress class via annotation, not field**: chart 0.24.1 doesn't expose `className` / `ingressClassName` at the values level. We set the legacy annotation `kubernetes.io/ingress.class: cloudflare-tunnel` to force the operator to pick it up. Without this, the chart's Ingress falls through to the cluster's default IngressClass (Traefik in k3s) and the Cloudflare Tunnel never gets routed.
