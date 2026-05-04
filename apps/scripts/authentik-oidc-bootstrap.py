@@ -101,6 +101,8 @@ def upsert_oauth_app(slug: str, name: str, redirect_uris: list[str],
                      scopes: list[str], signing_key: str) -> dict:
     """Create (or fetch) provider + application; return dict with client_id/client_secret/slug."""
 
+    desired_redirect_uris = [{"matching_mode": "strict", "url": u} for u in redirect_uris]
+
     # 1. Provider
     provider = find_or_make(
         "/providers/oauth2/", "name", f"{name} OAuth",
@@ -109,13 +111,21 @@ def upsert_oauth_app(slug: str, name: str, redirect_uris: list[str],
             "authorization_flow": auth_flow,
             "invalidation_flow": invalidation_flow,
             "client_type": "confidential",
-            "redirect_uris": [{"matching_mode": "strict", "url": u} for u in redirect_uris],
+            "redirect_uris": desired_redirect_uris,
             "property_mappings": scopes,
             "signing_key": signing_key,
             "access_token_validity": "minutes=60",
             "refresh_token_validity": "days=30",
         },
     )
+
+    # Reconcile redirect_uris on a pre-existing provider — find_or_make returns
+    # the existing record unchanged, so a corrected URI in this script wouldn't
+    # otherwise propagate to Authentik until the provider was deleted.
+    if provider.get("redirect_uris") != desired_redirect_uris:
+        print(f"  reconciling redirect_uris on existing provider {provider['pk']}")
+        provider = api(f"/providers/oauth2/{provider['pk']}/", "PATCH",
+                       {"redirect_uris": desired_redirect_uris})
 
     # 2. Application linked to provider
     app = find_or_make(
@@ -162,7 +172,12 @@ APPS = [
     {
         "slug": "gitea",
         "name": "Gitea",
-        "redirect_uris": ["https://gitea.chifor.dev/user/oauth2/authentik/callback"],
+        # Gitea's OAuth callback URL embeds the auth source name verbatim:
+        # /user/oauth2/<auth-source-name>/callback. The README's
+        # `gitea admin auth add-oauth --name "Authentik"` produces the URL
+        # below; Authentik's strict matching is case-sensitive, so the path
+        # segment must be `Authentik`, not `authentik`.
+        "redirect_uris": ["https://gitea.chifor.dev/user/oauth2/Authentik/callback"],
         "namespace": "gitea",
     },
     {

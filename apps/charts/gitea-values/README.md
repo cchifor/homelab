@@ -66,7 +66,11 @@ The Authentik provider + application + k8s Secret were created automatically by 
 CLIENT_ID=$(kubectl -n gitea get secret authentik-oidc -o jsonpath='{.data.client-id}' | base64 -d)
 CLIENT_SECRET=$(kubectl -n gitea get secret authentik-oidc -o jsonpath='{.data.client-secret}' | base64 -d)
 
-# Run gitea admin CLI inside the running pod to add the OAuth2 source
+# Run gitea admin CLI inside the running pod to add the OAuth2 source.
+# IMPORTANT: --name MUST be "Authentik" (capital A) — Gitea's callback URL
+# is /user/oauth2/<name>/callback (case-sensitive), and the bootstrap script
+# registered the redirect_uri with capital A. Renaming the source here
+# breaks the round-trip with Authentik (HTTP 400, redirect_uri mismatch).
 kubectl -n gitea exec -it $(kubectl -n gitea get pod -l app.kubernetes.io/name=gitea -o name | head -1) -- gitea admin auth add-oauth \
   --name "Authentik" \
   --provider openidConnect \
