@@ -1,49 +1,117 @@
-# immich-values — DEFERRED
+# immich-values
 
-[Immich](https://immich.app/) is the Google Photos alternative — face/object AI search, mobile auto-upload, sharing, timeline. Worth installing eventually.
+Self-hosted Google Photos alternative — face/object AI search, mobile auto-upload, sharing.
 
-**Status: deferred to a future phase.** The chart works in principle but needs an external pgvector / pgvecto.rs PostgreSQL that we don't yet have set up.
+| | |
+|---|---|
+| Chart | `immich/immich` (`helm repo add immich https://immich-app.github.io/immich-charts`) |
+| Pinned version | `0.11.1` (Immich v2.6.3) |
+| Namespace | `immich` |
+| Exposure | **Public via Cloudflare Tunnel** at https://immich.chifor.dev |
+| Database | CloudNativePG cluster `immich-postgres` (in `immich` namespace) with VectorChord + pgvector + cube + earthdistance extensions |
+| Library PVC | 100 GiB Longhorn (pre-created) |
 
-## Why deferred
+## Pre-install: Postgres cluster + library PVC
 
-The `immich-charts/immich` chart removed its bundled PostgreSQL subchart in version 0.10.0 (released mid-2025). The reason: Immich requires PostgreSQL with the `pgvecto.rs` (or `pgvector`) extension installed for AI vector similarity search, and the upstream Bitnami postgres image doesn't ship that extension.
+The chart no longer bundles PostgreSQL (since 0.10.0) — it requires an external Postgres with VectorChord (Immich's vector extension since v1.133), pgvector, cube, and earthdistance. We deploy via CloudNativePG operator + a tensorchord image that ships VectorChord + pgvector.
 
-The chart's release notes point users at one of:
-- **CloudNativePG operator** with a custom image that includes pgvecto.rs
-- **Tensorchord's `pgvecto-rs` image** deployed standalone (`tensorchord/pgvecto-rs:pg16-v0.2.0`)
-- **Self-managed Postgres** outside the cluster with the extension installed manually
+**Step 1: install CloudNativePG operator** (one-time per cluster):
 
-## Pre-pinned values (ready to use once Postgres is sorted)
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm upgrade --install cnpg cnpg/cloudnative-pg \
+  --version 0.28.0 \
+  -n cnpg-system --create-namespace --timeout 5m
+kubectl label namespace cnpg-system chifor.dev/tier=platform --overwrite
+```
 
-`apps/charts/immich-values/values.yaml` is already configured for:
-- 100 GiB Longhorn library PVC (pre-created manifest in this dir)
-- Public via cloudflare-tunnel at `immich.chifor.dev`
-- Server + ML + microservices components enabled
-- CPU-only ML (workers are ARM64 with Mali GPU; no Plex-style hardware ML)
+**Step 2: deploy the immich Postgres cluster + namespace + library PVC:**
 
-What's missing: the chart values still need a working `postgresql.host`/`postgresql.username`/`postgresql.password` set pointing at an external pgvecto.rs Postgres.
+```bash
+kubectl apply -f apps/manifests/immich-postgres/cluster.yaml
 
-## Suggested path forward
+# Pre-create the Immich library PVC (chart requires existingClaim — won't auto-create)
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-library
+  namespace: immich
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 100Gi
+EOF
 
-1. Install **CloudNativePG operator** in the cluster (one helm chart, ~50 MB)
-2. Define a `Cluster` resource using `tensorchord/cnpg-pgvecto.rs:16-v0.2.0` image (or current equivalent)
-3. CloudNativePG creates a Postgres StatefulSet with `pgvecto.rs` extension built in, plus a Secret with credentials
-4. Reference the Secret in the Immich chart values
-5. `helm install immich`, validate
+kubectl -n immich wait --for=condition=Ready clusters.postgresql.cnpg.io/immich-postgres --timeout=8m
+```
 
-Estimated effort: 30–60 minutes once the dependencies are pinned. Punted to later because phase 3 wanted to avoid scope creep into "set up a third PostgreSQL operator just for one app."
+CNPG auto-creates Secret `immich-postgres-app` with username + password the chart references.
 
-## Pre-existing artefacts in this dir
+The `postInitApplicationSQL` block in the cluster manifest creates `vector` (pgvector), `vchord` (VectorChord), `cube`, and `earthdistance` extensions on first init — all required by Immich.
 
-- `values.yaml` — chart values (with `existingClaim: immich-library` for the photos PVC)
-- `.secrets.env` (gitignored) — placeholder DB password, kept for the future install
+## Install
 
-The pre-created `immich-library` PVC currently exists in the `immich` namespace; check with `kubectl -n immich get pvc`. Either keep it (it'll Bind once a real PV is requested) or delete with `kubectl -n immich delete pvc immich-library` if you're aborting the install entirely.
+```bash
+helm upgrade --install immich immich/immich \
+  --version 0.11.1 \
+  -n immich \
+  -f apps/charts/immich-values/values.yaml \
+  --timeout 15m
+```
 
-## Alternatives if Immich's pgvecto.rs hassle isn't worth it
+## Validation
 
-- **PhotoPrism** — similar feature set, simpler chart, doesn't need a special Postgres extension
-- **Photoview** — minimalist; great for personal use
-- **Lychee** — lightweight gallery, simpler stack
+```bash
+kubectl -n immich get pods   # all 4 should be Running:
+                              #   immich-postgres-1
+                              #   immich-server-*
+                              #   immich-machine-learning-*
+                              #   immich-valkey-*
 
-Any of these can swap in for the "Google Photos alternative" slot in the homelab line-up.
+curl -sI https://immich.chifor.dev/  # expect 200
+```
+
+## First-run setup
+
+Browse https://immich.chifor.dev — the web UI prompts for admin user creation on first launch. **No bootstrap admin** (unlike most apps) — you set the credentials directly via the web wizard.
+
+After creating admin, in **Settings → Server**:
+- External Domain: `https://immich.chifor.dev`
+
+Mobile app: install Immich from app store → server URL = `https://immich.chifor.dev`.
+
+## Adding photos
+
+Three ways:
+1. **Web upload** — drag-and-drop in browser
+2. **Mobile auto-upload** — install Immich app, sign in, enable backup
+3. **CLI** — `immich-go` or `immich-cli` for bulk imports
+
+The library lives at PVC `immich-library` (100 GiB initially — expand by editing the PVC). All Immich servers and microservices share access via ReadWriteOnce attachment to the same node.
+
+## Quirks worth knowing
+
+1. **Chart removed bundled Postgres in 0.10.0** — must use external CNPG (or other Postgres with VectorChord+pgvector+cube+earthdistance).
+
+2. **Bjw-s app-template values structure** — env vars go under `<component>.controllers.main.containers.main.env`, not top-level `env:`. See `values.yaml` for the pattern.
+
+3. **Extension name vs package name**: `CREATE EXTENSION pgvector` fails — the package is pgvector but the extension name is `vector`. CREATE the right name in postInitApplicationSQL.
+
+4. **postInitSQL vs postInitApplicationSQL**: CNPG's `postInitSQL` runs against `postgres` (system DB); `postInitApplicationSQL` runs against the app DB. Extensions Immich uses must be in `postInitApplicationSQL`.
+
+5. **earthdistance + cube need superuser**: the `immich` user can't `CREATE EXTENSION` for those — they must be created via `postInitApplicationSQL` (which CNPG runs as `postgres`/superuser).
+
+## Tear down
+
+```bash
+helm uninstall immich -n immich
+kubectl -n immich delete clusters.postgresql.cnpg.io/immich-postgres
+kubectl delete namespace immich
+# Manually delete CF DNS CNAME for immich.chifor.dev (operator orphans it).
+
+# Optional: uninstall CNPG operator (only if no other apps use it)
+helm uninstall cnpg -n cnpg-system
+```

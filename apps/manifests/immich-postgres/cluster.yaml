@@ -1,0 +1,77 @@
+# CloudNativePG cluster for Immich.
+#
+# Uses tensorchord/cloudnative-vectorchord — a CNPG-compatible image with
+# both VectorChord (Immich's new vector extension since v1.133) and pgvector
+# (its dependency) pre-installed. The bootstrap.initdb.postInitSQL block
+# CREATEs the extensions on first startup.
+#
+# Apply BEFORE helm-installing Immich:
+#   kubectl apply -f apps/manifests/immich-postgres/cluster.yaml
+#   kubectl -n immich wait --for=condition=Ready cluster/immich-postgres --timeout=10m
+#
+# After cluster comes up, CNPG auto-creates two services:
+#   immich-postgres-rw    : connect to primary (R/W)
+#   immich-postgres-ro    : connect to any replica (read-only)
+# and Secrets:
+#   immich-postgres-app           : credentials for the "immich" app user
+#   immich-postgres-superuser     : credentials for "postgres" superuser
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich
+  labels:
+    chifor.dev/tier: app
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: immich-postgres
+  namespace: immich
+spec:
+  instances: 1
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:16-1.1.1
+
+  # Inherit configurable storage size from longhorn
+  storage:
+    storageClass: longhorn
+    size: 30Gi
+
+  bootstrap:
+    initdb:
+      database: immich
+      owner: immich
+      # Both extensions must be created before Immich starts. CNPG distinguishes:
+      #   postInitSQL                — runs against the `postgres` system DB
+      #   postInitApplicationSQL     — runs against the application DB (`immich`)
+      # Extensions go in the application DB so Immich's connection sees them.
+      # Note: pgvector's extension name is just "vector" (package is pgvector).
+      # postInitApplicationSQL runs as superuser against the application DB,
+      # so we can CREATE EXTENSION cube + earthdistance (which the immich app
+      # user can't create itself).
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS vchord;
+        - CREATE EXTENSION IF NOT EXISTS cube;
+        - CREATE EXTENSION IF NOT EXISTS earthdistance;
+        - ALTER DATABASE immich SET search_path TO "$user", public, vchord, vector;
+
+  # Reasonable defaults for a single-replica homelab Postgres.
+  # shared_preload_libraries is a CNPG top-level field (not under parameters)
+  # — it's a fixed boot-time setting CNPG manages itself.
+  postgresql:
+    shared_preload_libraries:
+      - vchord
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+      work_mem: "8MB"
+      maintenance_work_mem: "64MB"
+      effective_cache_size: "1GB"
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi

@@ -1,42 +1,53 @@
 # immich values for the homelab.
 #
-# Chart: immich/immich 0.11.1 (immich v2.6.3)
-# Public via Cloudflare Tunnel. Self-hosted Google Photos alternative.
-# Hostname: immich.chifor.dev
+# Chart: immich/immich 0.11.1 (immich v2.6.3) — bjw-s app-template based, so
+# env/image/etc. all live under `controllers.main.containers.main.*`.
 #
-# Components included via subcharts: PostgreSQL (with pgvecto.rs / pgvector),
-# Redis. The chart auto-creates ML, server, and microservices Deployments.
+# Public via Cloudflare Tunnel at https://immich.chifor.dev (TLS at CF edge).
+# External Postgres: CloudNativePG cluster `immich-postgres` in this namespace
+# (pre-applied via apps/manifests/immich-postgres/cluster.yaml — has VectorChord
+# + pgvector extensions). Cache: bundled valkey (chart-managed Valkey).
 
-env:
-  TZ: Europe/Bucharest
-  IMMICH_LOG_LEVEL: log
-
-# === Image library storage (photos + thumbnails + uploads) ===
-image:
-  repository: ghcr.io/immich-app/immich-server
-
-# === Persistent volumes ===
-# Chart can't auto-create the library PVC — pre-create one named immich-library
-# in the immich namespace and reference it here. (See README.md for the kubectl
-# apply manifest.)
+# === Library PVC (chart can't auto-create — pre-existing PVC immich-library) ===
 immich:
   persistence:
     library:
       existingClaim: immich-library
 
-# === Server ===
+# === Cache: Valkey (chart-bundled; replaces the old Redis subchart) ===
+valkey:
+  enabled: true
+  # Use chart defaults — already pinned to docker.io/valkey/valkey:9.1-alpine
+
+# === Server (web + API) ===
 server:
   enabled: true
-  replicas: 1
-  resources:
-    requests: { cpu: 200m, memory: 512Mi }
-    limits:   { memory: 2Gi }
+  controllers:
+    main:
+      containers:
+        main:
+          env:
+            TZ: Europe/Bucharest
+            IMMICH_LOG_LEVEL: log
+            DB_HOSTNAME: immich-postgres-rw.immich.svc.cluster.local
+            DB_PORT: "5432"
+            DB_DATABASE_NAME: immich
+            DB_VECTOR_EXTENSION: vectorchord
+            DB_USERNAME:
+              valueFrom:
+                secretKeyRef:
+                  name: immich-postgres-app
+                  key: username
+            DB_PASSWORD:
+              valueFrom:
+                secretKeyRef:
+                  name: immich-postgres-app
+                  key: password
 
-  # The chart's "server.ingress" is the front-door for both web + API.
   ingress:
     main:
       enabled: true
-      ingressClassName: cloudflare-tunnel
+      className: cloudflare-tunnel
       hosts:
         - host: immich.chifor.dev
           paths:
@@ -44,38 +55,34 @@ server:
               pathType: Prefix
       tls: []
 
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { memory: 2Gi }
+
 # === Machine Learning service (face detection, smart search, OCR) ===
 machine-learning:
   enabled: true
+  controllers:
+    main:
+      containers:
+        main:
+          env:
+            TZ: Europe/Bucharest
+            DB_HOSTNAME: immich-postgres-rw.immich.svc.cluster.local
+            DB_PORT: "5432"
+            DB_DATABASE_NAME: immich
+            DB_VECTOR_EXTENSION: vectorchord
+            DB_USERNAME:
+              valueFrom:
+                secretKeyRef:
+                  name: immich-postgres-app
+                  key: username
+            DB_PASSWORD:
+              valueFrom:
+                secretKeyRef:
+                  name: immich-postgres-app
+                  key: password
+
   resources:
     requests: { cpu: 100m, memory: 512Mi }
     limits:   { memory: 2Gi }
-  # Use the CPU-only ML image — workers are ARM64 with Mali GPU (no Plex-style
-  # ML acceleration). CPU ML is slow but works.
-  image:
-    repository: ghcr.io/immich-app/immich-machine-learning
-
-# === Subchart: Postgres (immich's chart bundles a tuned postgres image) ===
-postgresql:
-  enabled: true
-  global:
-    postgresql:
-      auth:
-        username: immich
-        database: immich
-        # password set via --set on helm install
-  primary:
-    persistence:
-      enabled: true
-      size: 30Gi
-      storageClass: longhorn
-
-# === Subchart: Redis ===
-redis:
-  enabled: true
-  architecture: standalone
-  auth:
-    enabled: false
-  master:
-    persistence:
-      enabled: false
