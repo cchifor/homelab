@@ -131,7 +131,23 @@ Use this for apps you want reachable from your phone, a friend's laptop, or anyw
                   port: { number: 80 }
   ```
 
-  `helm install` → operator detects the Ingress → adds the public hostname to the tunnel → creates the DNS CNAME → traffic flows. `helm uninstall` → operator removes both. Pure GitOps, no dashboard clicks.
+  `helm install` → operator detects the Ingress → adds the public hostname to the tunnel → creates the DNS CNAME → traffic flows.
+
+  **On `helm uninstall` (or Ingress deletion)**, the operator removes the tunnel public hostname rule (so the URL stops resolving to anything useful — incoming traffic falls through to the tunnel's catch-all `404`) but leaves the DNS CNAME in Cloudflare. To fully clean up, also delete the DNS record manually in CF dashboard, or via API:
+
+  ```bash
+  source platform/.env
+  ZONE_ID=$(curl -sS -H "Authorization: Bearer $TF_VAR_cloudflare_api_token" \
+    "https://api.cloudflare.com/client/v4/zones?name=chifor.dev" \
+    | python -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])")
+  REC_ID=$(curl -sS -H "Authorization: Bearer $TF_VAR_cloudflare_api_token" \
+    "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=<app>.chifor.dev" \
+    | python -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])")
+  curl -sS -X DELETE -H "Authorization: Bearer $TF_VAR_cloudflare_api_token" \
+    "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$REC_ID"
+  ```
+
+  The orphan CNAME is harmless (points to a tunnel route that 404s) but accumulates over time if you spin apps up and down often.
 
 Per-app DNS CNAMEs (operator-created) override the wildcard A record from option A, so the same domain naturally splits — `rancher.chifor.dev` keeps pointing at the LAN IP, `vaultwarden.chifor.dev` flows through the tunnel.
 
