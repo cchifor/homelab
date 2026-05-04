@@ -1,0 +1,46 @@
+# OpenCloud + Keycloak Ingresses for cloudflare-tunnel-ingress-controller.
+#
+# The bundled chart's `ingress.enabled` flag doesn't actually create Ingress
+# resources in the version we installed (it only logs a "configure your own
+# ingress" reminder). Hand-rolled here so the cloudflare-tunnel-ingress-
+# controller picks them up and registers tunnel public hostnames + DNS CNAMEs.
+#
+# Apply:  kubectl apply -f apps/charts/opencloud-values/ingresses.yaml
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opencloud
+  namespace: opencloud
+spec:
+  ingressClassName: cloudflare-tunnel
+  rules:
+    - host: cloud.chifor.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: opencloud-opencloud
+                port:
+                  number: 9200
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opencloud-keycloak
+  namespace: opencloud
+spec:
+  ingressClassName: cloudflare-tunnel
+  rules:
+    - host: kc-cloud.chifor.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: opencloud-keycloak
+                port:
+                  number: 8080

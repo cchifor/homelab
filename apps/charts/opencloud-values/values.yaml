@@ -1,0 +1,69 @@
+# opencloud values for the homelab.
+#
+# Chart: oci://ghcr.io/opencloud-eu/helm-charts/opencloud (chart 0.1.x+)
+# Public via Cloudflare Tunnel:
+#   cloud.chifor.dev      → OpenCloud (web UI + API)
+#   kc-cloud.chifor.dev   → Keycloak  (OIDC IdP — browser-redirects via tunnel)
+# MinIO + Postgres are cluster-internal (no public hostname).
+#
+# Doc editors (OnlyOffice + Collabora) disabled — saves ~2GB RAM. Re-enable
+# when you actually want collaborative document editing.
+
+global:
+  domain:
+    opencloud: cloud.chifor.dev
+    keycloak: kc-cloud.chifor.dev
+    minio: minio-internal.opencloud.svc   # not actually used externally
+  tls:
+    enabled: true   # CF terminates TLS at the edge; this just makes URLs https://
+
+# === Routing: standard Ingress (cloudflare-tunnel class), not Gateway API HTTPRoute
+httpRoute:
+  enabled: false
+
+ingress:
+  enabled: true
+  className: cloudflare-tunnel
+  # The chart auto-creates Ingresses for opencloud + keycloak hosts based on
+  # global.domain.*; cloudflare-tunnel-ingress-controller picks them up and
+  # registers tunnel public hostnames + DNS CNAMEs automatically.
+  tls: false   # CF terminates; no cert at origin needed
+
+# === Internal Keycloak (OIDC IdP)
+# Could repoint at our Authentik later, but the chart's tight coupling to
+# Keycloak realm config makes "Authentik instead" a meaningful refactor.
+# Use chart-bundled Keycloak for now; admin password set via --set on install.
+keycloak:
+  internal:
+    enabled: true
+
+# === Internal Postgres (for Keycloak)
+postgres:
+  enabled: true
+
+# === Internal MinIO (S3 backend for OpenCloud's spaces)
+# We have a Proxmox MinIO LXC (192.168.0.186), but the chart's MinIO is
+# tightly bootstrapped — re-pointing at the LXC means hand-creating
+# buckets + IAM users. Stays internal for simplicity.
+opencloud:
+  storage:
+    mode: s3
+    s3:
+      internal:
+        enabled: true
+
+# === Tika required: OpenCloud's search service hardcodes a Tika dependency
+# at startup. Disabling Tika cascade-fails the supervisor (5 failures →
+# backoff, never recovers). Tika itself is ~200 MB; acceptable cost.
+tika:
+  enabled: true
+
+# === Disabled: heavy doc editors (collabora ~1 GB, onlyoffice ~2 GB)
+# Re-enable when actually needed (re-running helm upgrade).
+collabora:
+  enabled: false
+onlyoffice:
+  enabled: false
+
+# === Web extensions (UI plugins) — keep defaults
+webExtensions: {}
