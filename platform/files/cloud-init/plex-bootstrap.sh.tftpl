@@ -1,0 +1,86 @@
+#!/bin/bash
+# Plex Media Server bootstrap inside a Debian 12 LXC.
+# Driven from the Proxmox host via `pct exec` — runs as root in the container.
+# CTID and other params injected via templatefile().
+
+set -euo pipefail
+
+CTID=${ctid}
+PLEX_VERSION='${plex_version}'
+PLEX_DATA_DIR='${plex_data_dir}'
+
+echo "==> Plex bootstrap for CT $CTID — version $PLEX_VERSION, data dir $PLEX_DATA_DIR"
+
+# Convenience wrapper: run a command inside the container as root
+ct_run() { pct exec "$CTID" -- /bin/bash -c "$1"; }
+
+# 1. Update package metadata + install prereqs (idempotent)
+ct_run 'export DEBIAN_FRONTEND=noninteractive && apt-get update -qq'
+ct_run 'apt-get install -y -qq curl wget ca-certificates gnupg apt-transport-https'
+
+# 2. Install Plex Media Server (skip if already at the right version)
+INSTALLED_VER=$(pct exec "$CTID" -- dpkg-query -W -f='$${Version}' plexmediaserver 2>/dev/null || echo none)
+if [ "$INSTALLED_VER" = "$PLEX_VERSION" ]; then
+  echo "==> Plex $PLEX_VERSION already installed — skipping"
+else
+  echo "==> Installing Plex $PLEX_VERSION"
+  DEB_URL="https://downloads.plex.tv/plex-media-server-new/$PLEX_VERSION/debian/plexmediaserver_$${PLEX_VERSION}_amd64.deb"
+  ct_run "wget --quiet -O /tmp/plexmediaserver.deb '$DEB_URL'"
+  ct_run 'apt-get install -y -qq /tmp/plexmediaserver.deb'
+  ct_run 'rm -f /tmp/plexmediaserver.deb'
+fi
+
+# 3. Verify the iGPU render node is visible inside (passthrough sanity check)
+if pct exec "$CTID" -- ls -la /dev/dri/ 2>/dev/null | grep -q renderD; then
+  echo "==> /dev/dri render node visible inside container — QuickSync available"
+  pct exec "$CTID" -- ls -la /dev/dri/ 2>&1 | head -5
+  # Add plex user to render + video groups so it can open the device nodes.
+  # Note: GIDs inside the container must match the host's render/video GIDs
+  # for permissions to work — privileged LXC means same-uid namespace, so
+  # this works "naturally" without explicit GID remapping.
+  ct_run 'getent group render >/dev/null 2>&1 || groupadd -r render || true'
+  ct_run 'getent group video  >/dev/null 2>&1 || groupadd -r video  || true'
+  ct_run 'usermod -aG render plex 2>/dev/null || true'
+  ct_run 'usermod -aG video  plex 2>/dev/null || true'
+else
+  echo "==> WARN: /dev/dri render node NOT visible inside container"
+  echo "    Plex will fall back to CPU transcoding. Check that:"
+  echo "    1. iGPU exists on host: ls /dev/dri/"
+  echo "    2. cgroup allows + mount entries are in /etc/pve/lxc/$CTID.conf"
+  echo "    3. CT was restarted after conf changes"
+fi
+
+# 4. Set up library data directory on the bind mount
+#    Plex stores all metadata + databases under /var/lib/plexmediaserver/Library
+#    Symlink it onto the persistent NVMe bind so the LXC rootfs can be rebuilt
+#    without losing library state.
+ct_run "systemctl stop plexmediaserver 2>/dev/null || true"
+ct_run "mkdir -p $PLEX_DATA_DIR/library $PLEX_DATA_DIR/media"
+ct_run "chown -R plex:plex $PLEX_DATA_DIR"
+
+if pct exec "$CTID" -- test -L /var/lib/plexmediaserver 2>/dev/null; then
+  echo "==> /var/lib/plexmediaserver already symlinked, skipping"
+elif pct exec "$CTID" -- test -d /var/lib/plexmediaserver 2>/dev/null; then
+  # Migrate existing data on first run, then replace dir with symlink
+  ct_run "rsync -a /var/lib/plexmediaserver/ $PLEX_DATA_DIR/library/ 2>/dev/null || true"
+  ct_run "rm -rf /var/lib/plexmediaserver"
+  ct_run "ln -s $PLEX_DATA_DIR/library /var/lib/plexmediaserver"
+  ct_run "chown -h plex:plex /var/lib/plexmediaserver"
+fi
+
+# 5. Restart Plex with the symlinked data dir
+ct_run 'systemctl daemon-reload'
+ct_run 'systemctl enable plexmediaserver'
+ct_run 'systemctl restart plexmediaserver'
+
+# 6. Wait briefly for Plex to come up and check that port 32400 is listening
+for i in $(seq 1 30); do
+  if pct exec "$CTID" -- ss -tlnp 2>/dev/null | grep -q ':32400 '; then
+    echo "==> Plex listening on :32400"
+    exit 0
+  fi
+  sleep 2
+done
+echo "==> WARN: Plex didn't bind :32400 within 60s — check logs:"
+echo "    pct exec $CTID -- journalctl -u plexmediaserver --tail=50"
+exit 1

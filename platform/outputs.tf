@@ -50,6 +50,23 @@ output "longhorn_url" {
   description = "How to reach the Longhorn UI from the operator machine."
 }
 
+# --- Plex ---
+
+output "plex_url" {
+  value       = var.plex_enabled ? "http://${var.plex_ip}:32400/web" : "(disabled — set plex_enabled=true)"
+  description = "Plex Media Server web UI URL. First launch requires a claim token from https://www.plex.tv/claim/ (4-min TTL): browse to this URL while signed in to plex.tv on the same browser, or paste the claim token into the LXC."
+}
+
+output "plex_vmid" {
+  value       = var.plex_enabled ? module.plex_lxc[0].vmid : null
+  description = "Plex LXC container ID."
+}
+
+output "plex_ip" {
+  value       = var.plex_enabled ? module.plex_lxc[0].ip : null
+  description = "Plex LXC IP."
+}
+
 # --- v2: Sysbox + Rancher ---
 
 output "sysbox_runtime_class_name" {

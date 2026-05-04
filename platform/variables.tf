@@ -398,6 +398,102 @@ variable "rancher_bootstrap_password" {
 }
 
 # =============================================================================
+# Plex LXC (optional — gated by var.plex_enabled)
+#
+# Privileged Debian LXC with /dev/dri bind-mounted from the host for QuickSync
+# hardware transcoding. Library + media stored on /nvme-pool/plex (host).
+# LAN-only — first-launch claim required at https://www.plex.tv/claim/
+# =============================================================================
+
+variable "plex_enabled" {
+  type        = bool
+  default     = false
+  description = "Deploy the Plex LXC. Defaults off — flip to true (in tfvars or via TF_VAR_plex_enabled=true) when you actually want Plex."
+}
+
+variable "plex_hostname" {
+  type        = string
+  default     = "plex"
+  description = "LXC hostname."
+}
+
+variable "plex_ip" {
+  type        = string
+  default     = "192.168.0.188"
+  description = "Static LAN IP."
+}
+
+variable "plex_cores" {
+  type    = number
+  default = 4
+}
+
+variable "plex_memory_mb" {
+  type    = number
+  default = 4096
+}
+
+variable "plex_rootfs_size" {
+  type    = string
+  default = "16G"
+}
+
+variable "plex_storage_pool" {
+  type    = string
+  default = "local-zfs"
+}
+
+variable "plex_template" {
+  type        = string
+  default     = "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
+  description = "Pre-uploaded LXC template. Plex DEB requires glibc — Debian 12 standard. Find current name: `pveam available --section system | grep debian-12`."
+}
+
+variable "plex_bind_host_path" {
+  type        = string
+  default     = "/nvme-pool/plex"
+  description = "Host path for Plex library + media. Pre-create with `mkdir -p /nvme-pool/plex && chown 1000:1000 /nvme-pool/plex`."
+}
+
+variable "plex_bind_ct_path" {
+  type        = string
+  default     = "/srv/plex"
+  description = "In-container mount path for plex_bind_host_path."
+}
+
+variable "plex_igpu_passthrough_enabled" {
+  type    = bool
+  default = true
+}
+
+variable "plex_igpu_card_name" {
+  type        = string
+  default     = "card1"
+  description = "DRM card device — Alder Lake-N (N150) is card1; older Intel iGPUs may be card0. Check with `ls /dev/dri/` on the Proxmox host."
+}
+
+variable "plex_igpu_card_minor" {
+  type    = number
+  default = 1
+}
+
+variable "plex_igpu_render_name" {
+  type    = string
+  default = "renderD128"
+}
+
+variable "plex_igpu_render_minor" {
+  type    = number
+  default = 128
+}
+
+variable "plex_version" {
+  type        = string
+  default     = "1.41.4.9463-630c9f557"
+  description = "Plex Media Server version. Latest at https://www.plex.tv/media-server-downloads/?cat=computer&plat=linux"
+}
+
+# =============================================================================
 # Let's Encrypt (DNS-01 via Cloudflare)
 #
 # All three resources here (Secret + 2 ClusterIssuers in main.tf) are gated on

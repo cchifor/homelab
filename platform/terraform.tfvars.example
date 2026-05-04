@@ -45,6 +45,20 @@ cp_ssh_private_key_path = "~/.ssh/id_ed25519"
 #   q6a-4 = { name = "q6a-4", address = "192.168.1.167", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
 # }
 
+# --- Plex (optional — flip plex_enabled=true to deploy) ---
+# plex_enabled = true   # uncomment to deploy
+# plex_hostname        = "plex"
+# plex_ip              = "192.168.0.188"
+# plex_cores           = 4
+# plex_memory_mb       = 4096
+# plex_template        = "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
+# plex_bind_host_path  = "/nvme-pool/plex"      # mkdir -p first; chown 1000:1000
+# plex_version         = "1.41.4.9463-630c9f557"
+# Defaults assume Alder Lake-N (N150) iGPU with card1 + renderD128.
+# Verify on Proxmox host: ls /dev/dri/  → if you see card0, override:
+#   plex_igpu_card_name  = "card0"
+#   plex_igpu_card_minor = 0
+
 # --- v2: Sysbox / cert-manager / Rancher ---
 # sysbox_version             = "0.6.5"
 # cert_manager_chart_version = "v1.16.2"

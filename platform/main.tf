@@ -33,6 +33,43 @@ module "nas_minio" {
   proxmox_host_ssh_private_key_path = pathexpand(var.proxmox_host_ssh_private_key_path)
 }
 
+module "plex_lxc" {
+  count  = var.plex_enabled ? 1 : 0
+  source = "./modules/proxmox_lxc_plex"
+
+  node_name = var.pm_node_name
+  hostname  = var.plex_hostname
+
+  ip      = var.plex_ip
+  gateway = var.lan_gateway
+  dns     = var.lan_dns
+  bridge  = var.bridge
+  mtu     = var.mtu
+
+  cores        = var.plex_cores
+  memory_mb    = var.plex_memory_mb
+  rootfs_size  = var.plex_rootfs_size
+  storage_pool = var.plex_storage_pool
+  template     = var.plex_template
+
+  bind_host_path = var.plex_bind_host_path
+  bind_ct_path   = var.plex_bind_ct_path
+
+  igpu_passthrough_enabled = var.plex_igpu_passthrough_enabled
+  igpu_card_name           = var.plex_igpu_card_name
+  igpu_card_minor          = var.plex_igpu_card_minor
+  igpu_render_name         = var.plex_igpu_render_name
+  igpu_render_minor        = var.plex_igpu_render_minor
+
+  plex_version = var.plex_version
+
+  ssh_public_key = var.cp_ssh_public_key
+
+  proxmox_host_address              = var.proxmox_host_address
+  proxmox_host_ssh_user             = var.proxmox_host_ssh_user
+  proxmox_host_ssh_private_key_path = pathexpand(var.proxmox_host_ssh_private_key_path)
+}
+
 module "k3s_server" {
   source = "./modules/proxmox_vm_k3s_server"
 
