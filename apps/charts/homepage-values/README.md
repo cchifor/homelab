@@ -20,6 +20,10 @@ helm upgrade --install homepage jameswynn/homepage \
   --timeout 5m
 ```
 
+## Required: HOMEPAGE_ALLOWED_HOSTS
+
+Homepage v1.0+ rejects every request whose `Host` header isn't on its allowlist (UI shows `Host validation failed. See logs for more details.`, container logs spell it out: `Host validation failed for: home.chifor.dev. Hint: Set the HOMEPAGE_ALLOWED_HOSTS environment variable…`). The chart's default `env:` declares the variable but leaves the value `null` — `values.yaml` here overrides the full env list to set it to `home.chifor.dev`. If you change the hostname, update the env entry in lockstep.
+
 ## Updating the dashboard
 
 The whole dashboard config (services, bookmarks, widgets, layout) lives in the `config:` section of `values.yaml`. To add/edit:

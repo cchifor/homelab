@@ -12,6 +12,15 @@ image:
   repository: ghcr.io/gethomepage/homepage
   pullPolicy: IfNotPresent
 
+# === Required env: HOMEPAGE_ALLOWED_HOSTS ===
+# Homepage v1.0+ rejects requests whose Host header isn't in this allowlist
+# ("Host validation failed for: <host>"). The chart declares the env entry
+# with value: null and expects the user to override; helm merges lists by
+# replacement, so the full env list goes here.
+env:
+  - name: HOMEPAGE_ALLOWED_HOSTS
+    value: home.chifor.dev
+
 # === Service / ingress ===
 service:
   main:
