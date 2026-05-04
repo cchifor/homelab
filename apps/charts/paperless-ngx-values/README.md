@@ -58,6 +58,40 @@ helm upgrade --install paperless-ngx gabe565/paperless-ngx \
    ```
    Paperless picks up new files in `consume/` within ~30 seconds, OCRs, tags, and stores them in `media/`.
 
+## Required post-install env override (chart bug)
+
+The `gabe565/paperless-ngx` chart 0.24.1 hardcodes several env vars in its
+deployment template and **overrides whatever the user puts in the `env:`
+values block**:
+
+- `PAPERLESS_URL: http://{ingress host}` — always `http://`, can't override to `https://`
+- `PAPERLESS_TIME_ZONE: UTC` — ignores `env.TZ`
+- `PAPERLESS_CSRF_TRUSTED_ORIGINS`, `PAPERLESS_ALLOWED_HOSTS`, `PAPERLESS_USE_X_FORWARD_*` — silently dropped from `env:`
+
+This breaks login behind a reverse proxy: Django CSRF rejects every POST with
+`Origin checking failed - https://paperless.chifor.dev does not match any
+trusted origins.`
+
+Workaround (run after every `helm install` / `helm upgrade`):
+
+```bash
+kubectl -n paperless set env deploy/paperless-ngx \
+  PAPERLESS_URL=https://paperless.chifor.dev \
+  PAPERLESS_CSRF_TRUSTED_ORIGINS=https://paperless.chifor.dev \
+  PAPERLESS_ALLOWED_HOSTS=paperless.chifor.dev \
+  PAPERLESS_USE_X_FORWARD_HOST=true \
+  PAPERLESS_USE_X_FORWARD_PORT=true \
+  PAPERLESS_TRUSTED_PROXIES=10.42.0.0/16
+```
+
+`kubectl set env` patches the Deployment directly, triggering a rollout. The
+patches survive pod restarts but are clobbered by `helm upgrade` — re-run
+the snippet whenever you upgrade the chart.
+
+For a permanent fix, either fork the chart with the hardcoded env removed,
+or use a helm post-render script to drop the offending env entries before
+they reach the cluster.
+
 ## Quirks
 
 - **Ingress class via annotation, not field**: chart 0.24.1 doesn't expose `className` / `ingressClassName` at the values level. We set the legacy annotation `kubernetes.io/ingress.class: cloudflare-tunnel` to force the operator to pick it up. Without this, the chart's Ingress falls through to the cluster's default IngressClass (Traefik in k3s) and the Cloudflare Tunnel never gets routed.
