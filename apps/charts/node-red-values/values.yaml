@@ -1,0 +1,60 @@
+# node-red values for the homelab.
+#
+# Chart: k8s-at-home/node-red 10.3.2 (Node-RED 2.2.2)
+# Visual flow programming for IoT events. LAN-only with LE cert.
+# Hostname: nodered.chifor.dev
+#
+# Note: k8s-at-home charts are archived; OK for chart-only / scale-to-0
+# validation, swap for a maintained chart when actually deploying.
+#
+# STATUS: chart-only. Scale to 0 after validation.
+
+replicaCount: 1
+
+image:
+  repository: nodered/node-red
+  tag: 4.0.5
+
+# nodered/node-red runs as user `node-red` (uid 1000); without fsGroup the
+# Longhorn-provisioned PVC is owned by root and the copyFile of settings.js
+# into /data fails with EACCES. fsGroup makes the kubelet chgrp the volume
+# to 1000 on mount.
+podSecurityContext:
+  fsGroup: 1000
+  runAsUser: 1000
+  runAsGroup: 1000
+
+service:
+  main:
+    type: ClusterIP
+    ports:
+      http:
+        port: 1880
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: nodered.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - hosts: [nodered.chifor.dev]
+        secretName: nodered-tls
+
+# === Storage (flows + node modules) ===
+persistence:
+  data:
+    enabled: true
+    storageClass: longhorn
+    size: 1Gi
+    mountPath: /data
+    accessMode: ReadWriteOnce
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits:   { memory: 512Mi }

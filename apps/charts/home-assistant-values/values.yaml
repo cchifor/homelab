@@ -1,0 +1,57 @@
+# home-assistant values for the homelab.
+#
+# Chart: pajikos/home-assistant 0.3.56 (HA 2026.4.4)
+# LAN-only with LE cert (admin tool; not exposed publicly).
+# Hostname: ha.chifor.dev
+#
+# STATUS: chart-only (pods scaled to 0 by `kubectl scale deployment/home-assistant
+# -n home-assistant --replicas=0` after validation). Re-enable by scaling back to 1.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/home-assistant/home-assistant
+  pullPolicy: IfNotPresent
+
+# Run with NET_ADMIN + NET_RAW to allow HA's network discovery (mDNS, SSDP, etc.)
+configuration:
+  enabled: true
+  trusted_proxies:
+    - 10.42.0.0/16   # k3s pod CIDR
+    - 192.168.0.0/24
+
+# === Storage ===
+persistence:
+  config:
+    enabled: true
+    storageClass: longhorn
+    size: 5Gi
+    accessMode: ReadWriteOnce
+
+# === Service / ingress ===
+service:
+  main:
+    type: ClusterIP
+    ports:
+      http:
+        port: 8123
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: ha.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - hosts: [ha.chifor.dev]
+        secretName: ha-tls
+
+# === Resource limits ===
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { memory: 1Gi }

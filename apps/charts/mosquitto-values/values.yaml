@@ -1,0 +1,43 @@
+# mosquitto values for the homelab.
+#
+# Chart: k8s-at-home/mosquitto 4.8.2 (Mosquitto 2.0.14)
+# Eclipse Mosquitto MQTT broker. Cluster-internal only — Home Assistant
+# connects via service DNS; no LAN/public exposure for the broker itself.
+#
+# Note: k8s-at-home charts are archived (no future updates); they still work
+# but consider migrating to a bjw-s app-template-based chart when you actually
+# put MQTT into production use.
+#
+# STATUS: chart-only. Scale to 0 after validation.
+
+replicaCount: 1
+
+image:
+  repository: eclipse-mosquitto
+  tag: 2.0.20
+
+service:
+  main:
+    type: ClusterIP
+    ports:
+      mqtt:
+        port: 1883
+        protocol: TCP
+
+# === Persistence (retained messages) ===
+# Eclipse Mosquitto's image has /mosquitto/config as read-only — chart's
+# subPath mount over mosquitto.conf fails (read-only file system error).
+# For chart-only validation, skip the custom configMap and use the image's
+# default config (anonymous, no persistence). Re-enable + use an initContainer
+# to copy the config when actually deploying.
+persistence:
+  data:
+    enabled: true
+    storageClass: longhorn
+    size: 1Gi
+    mountPath: /mosquitto/data
+    accessMode: ReadWriteOnce
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits:   { memory: 128Mi }
