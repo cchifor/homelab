@@ -2,6 +2,22 @@
 
 Application workloads that run *on* the cluster provisioned by [`../platform/`](../platform/).
 
+## Namespace convention
+
+Every namespace is labeled `chifor.dev/tier` to distinguish app vs platform at a glance:
+
+```bash
+kubectl get ns -l chifor.dev/tier=app           # the apps in this directory
+kubectl get ns -l chifor.dev/tier=platform      # cluster foundation (cert-manager, longhorn, monitoring, velero, cloudflare-tunnel-..., rancher, etc.)
+```
+
+Each new app lives in **its own namespace** (`<app-name>`) for RBAC/NetworkPolicy/ResourceQuota isolation and Velero restore granularity. After deploying a new app, label its namespace:
+
+```bash
+kubectl label namespace <app-name> chifor.dev/tier=app --overwrite
+```
+
+
 ```
 apps/
 ├── charts/      ← Locally-developed Helm charts (see ./charts/README.md)

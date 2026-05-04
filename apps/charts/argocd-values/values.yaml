@@ -1,0 +1,73 @@
+# argo-cd values for the homelab.
+#
+# Chart: argo/argo-cd 9.5.11 (Argo CD v3.3.9)
+# Public via Cloudflare Tunnel — `git push` deploys, plus a UI to inspect sync state.
+# Hostname: argocd.chifor.dev
+#
+# Single-replica (no HA). For a homelab this is fine; can scale later by
+# enabling HA values.
+
+global:
+  domain: argocd.chifor.dev
+
+# === Server (UI + API) ===
+server:
+  # Run server in --insecure mode: TLS terminated by CF tunnel at the edge,
+  # internal traffic stays HTTP. Without this, server insists on its own
+  # self-signed cert and the tunnel can't reach it cleanly.
+  extraArgs:
+    - --insecure
+
+  ingress:
+    enabled: true
+    ingressClassName: cloudflare-tunnel
+    hostname: argocd.chifor.dev
+    tls: false   # CF terminates TLS
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { memory: 512Mi }
+
+# === Repo server (talks to git, renders manifests) ===
+repoServer:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { memory: 512Mi }
+
+# === Application controller (reconciles applications) ===
+controller:
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { memory: 1Gi }
+
+# === Redis (in-memory state cache) ===
+redis:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { memory: 256Mi }
+
+# === Notifications + ApplicationSet controllers (light-weight, leave on) ===
+notifications:
+  enabled: true
+applicationSet:
+  enabled: true
+
+# === Dex (OIDC bridge) — disabled until we wire Authentik OIDC ===
+dex:
+  enabled: false
+
+# === Configs ===
+configs:
+  params:
+    # Honor the --insecure flag so server doesn't warn about it
+    server.insecure: true
+
+  cm:
+    # Allow self-signed certs from internal git servers (e.g., LAN-only Gitea later)
+    tls.minversion: "1.2"
+    timeout.reconciliation: 180s
+
+  rbac:
+    policy.default: role:readonly
+    # Future: refine to "admin" only for specific Authentik group

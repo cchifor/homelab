@@ -1,0 +1,30 @@
+# Apps-of-apps root: a single Application that watches the apps/argocd-apps/
+# directory and creates an Application for every YAML it finds there.
+# Apply this ONCE; from then on, adding a new file in this directory deploys
+# a new app to the cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:cchifor/homelab.git
+    targetRevision: main
+    path: apps/argocd-apps
+    directory:
+      recurse: false
+      include: "*.yaml"
+      exclude: "{root.yaml,README.md}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
