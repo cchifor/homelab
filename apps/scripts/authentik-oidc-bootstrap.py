@@ -139,6 +139,12 @@ def upsert_oauth_app(slug: str, name: str, redirect_uris: list[str],
 
 
 # === Apps to integrate ===
+#
+# `secret_labels` (optional): extra metadata.labels to set on the Secret.
+#   ArgoCD's `$<secret>:<key>` substitution mechanism only reads from Secrets
+#   carrying `app.kubernetes.io/part-of: argocd` — without it, ArgoCD passes
+#   the literal placeholder string through as the OAuth client_id and Authentik
+#   rejects the login with an "invalid client" error.
 APPS = [
     {
         "slug": "grafana",
@@ -151,6 +157,7 @@ APPS = [
         "name": "ArgoCD",
         "redirect_uris": ["https://argocd.chifor.dev/auth/callback"],
         "namespace": "argocd",
+        "secret_labels": {"app.kubernetes.io/part-of": "argocd"},
     },
     {
         "slug": "gitea",
@@ -167,14 +174,17 @@ APPS = [
 ]
 
 
-def write_k8s_secret(namespace: str, name: str, data: dict) -> None:
+def write_k8s_secret(namespace: str, name: str, data: dict, labels: Optional[dict] = None) -> None:
     """Apply a Secret via kubectl (avoids requiring the kubernetes Python client)."""
     import base64
     encoded = {k: base64.b64encode(v.encode()).decode() for k, v in data.items()}
+    metadata: dict = {"name": name, "namespace": namespace}
+    if labels:
+        metadata["labels"] = labels
     body = {
         "apiVersion": "v1",
         "kind": "Secret",
-        "metadata": {"name": name, "namespace": namespace},
+        "metadata": metadata,
         "type": "Opaque",
         "data": encoded,
     }
@@ -219,6 +229,7 @@ def main():
                 "client-secret": result["client_secret"],
                 "issuer-url": result["issuer"],
             },
+            labels=app.get("secret_labels"),
         )
         print(f"  client_id    = {result['client_id']}")
         print(f"  client_secret= {result['client_secret']}")

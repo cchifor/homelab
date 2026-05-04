@@ -112,26 +112,24 @@ git add apps/argocd-apps/<app>.yaml && git commit -m 'argocd: migrate <app>' && 
 
 Brief downtime per app (~30-60s) during the helm uninstall → ArgoCD recreate. Migrate apps you'd reinstall anyway (e.g., during a chart upgrade) and let the others stay helm-managed for now.
 
-## Authentik OIDC integration (later)
+## Authentik OIDC integration
 
-ArgoCD supports OIDC via `configs.cm.url` and `configs.cm.oidc.config`. To put Authentik in front of ArgoCD admin:
+Already wired in `values.yaml` (`configs.cm.oidc.config`). The provider + application are created in Authentik by `apps/scripts/authentik-oidc-bootstrap.py`, which also writes a Secret `authentik-oidc` in the `argocd` namespace with `client-id`, `client-secret`, and `issuer-url` keys.
 
-1. In Authentik, create an OAuth2/OpenID provider for ArgoCD (redirect URI `https://argocd.chifor.dev/auth/callback`)
-2. Update `apps/charts/argocd-values/values.yaml`:
-   ```yaml
-   configs:
-     cm:
-       url: https://argocd.chifor.dev
-       oidc.config: |
-         name: Authentik
-         issuer: https://authentik.chifor.dev/application/o/argocd/
-         clientID: <authentik-client-id>
-         clientSecret: $oidc.authentik.clientSecret
-         requestedScopes: ["openid","profile","email","groups"]
-   ```
-3. Helm upgrade.
+ArgoCD's `$<secret-name>:<key>` substitution mechanism (used in `values.yaml` for `clientID` / `clientSecret`) **only reads from Secrets carrying the label `app.kubernetes.io/part-of: argocd`**. Without the label, ArgoCD passes the placeholder string through as the OAuth client_id, Authentik rejects the login with an "invalid client" error, and the only signal in `argocd-server` logs is:
 
-Same pattern works for Gitea, Vaultwarden, Grafana — defer until after we have a few apps in ArgoCD and the value of SSO becomes clear.
+```
+config referenced '$authentik-oidc:client-id', but key does not exist in secret
+```
+
+(misleading — the keys *do* exist; the secret is invisible to ArgoCD because of the missing label).
+
+The bootstrap script now sets the label automatically. If you ever recreate the Secret out-of-band, ensure the label is present:
+
+```bash
+kubectl -n argocd label secret authentik-oidc app.kubernetes.io/part-of=argocd --overwrite
+kubectl -n argocd rollout restart deploy/argocd-server
+```
 
 ## Uninstall
 
