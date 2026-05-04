@@ -50,6 +50,23 @@ output "longhorn_url" {
   description = "How to reach the Longhorn UI from the operator machine."
 }
 
+# --- OpenClaw ---
+
+output "openclaw_gateway_url" {
+  value       = var.openclaw_enabled ? "http://${var.openclaw_ip}:18789 — daemon NOT auto-started; ssh + run `openclaw onboard --install-daemon` to configure API keys first" : "(disabled — set openclaw_enabled=true)"
+  description = "OpenClaw daemon URL. First-run setup needs API keys (Claude/OpenAI + messaging integrations) — see modules/proxmox_lxc_openclaw/README.md."
+}
+
+output "openclaw_vmid" {
+  value       = var.openclaw_enabled ? module.openclaw_lxc[0].vmid : null
+  description = "OpenClaw LXC container ID."
+}
+
+output "openclaw_ip" {
+  value       = var.openclaw_enabled ? module.openclaw_lxc[0].ip : null
+  description = "OpenClaw LXC IP."
+}
+
 # --- Plex ---
 
 output "plex_url" {

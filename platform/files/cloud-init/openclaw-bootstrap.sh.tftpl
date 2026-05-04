@@ -1,0 +1,95 @@
+#!/bin/bash
+# OpenClaw bootstrap inside a Debian 12 LXC. Driven from the Proxmox host
+# via `pct exec` — runs as root in the container. Templated values come from
+# the calling Terraform module.
+#
+# Installs:
+#   - Docker CE + Compose plugin (OpenClaw uses Docker as a sandbox backend)
+#   - Node.js (NodeSource repo, major version pinned via var.node_major_version)
+#   - OpenClaw via npm global, prefix on the persistent bind mount so survives rebuilds
+#   - Playwright + Chromium browser + system libraries (~1.5 GB total)
+#
+# Idempotent: skips already-installed components.
+
+set -euo pipefail
+
+CTID=${ctid}
+NODE_MAJOR='${node_major}'
+OPENCLAW_PKG='${openclaw_pkg_spec}'
+DATA_DIR='${data_dir}'
+
+ct_run() { pct exec "$CTID" -- /bin/bash -lc "$1"; }
+
+echo "==> OpenClaw bootstrap for CT $CTID"
+echo "    Node $NODE_MAJOR + $OPENCLAW_PKG, data dir $DATA_DIR"
+
+# 1. Base packages
+ct_run 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq'
+ct_run 'apt-get install -y -qq curl ca-certificates gnupg lsb-release wget git build-essential'
+
+# 2. Docker CE + Compose plugin (idempotent)
+if ! pct exec "$CTID" -- command -v docker >/dev/null 2>&1; then
+  echo "==> Installing Docker CE"
+  ct_run 'install -m 0755 -d /etc/apt/keyrings'
+  ct_run 'curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && chmod a+r /etc/apt/keyrings/docker.asc'
+  ct_run 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list'
+  ct_run 'apt-get update -qq && apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin'
+  ct_run 'systemctl enable docker && systemctl start docker'
+fi
+
+# Quick Docker sanity check (will print container info or "Cannot connect")
+ct_run 'docker info --format "{{.ServerVersion}} ({{.Architecture}})" || echo "Docker not yet running"'
+
+# 3. Node.js (NodeSource repo, pinned major)
+INSTALLED_NODE_MAJOR=$(pct exec "$CTID" -- bash -c "node --version 2>/dev/null | sed 's/v\([0-9]*\)\..*/\1/' || echo none")
+if [ "$INSTALLED_NODE_MAJOR" != "$NODE_MAJOR" ]; then
+  echo "==> Installing Node.js $NODE_MAJOR (have: $INSTALLED_NODE_MAJOR)"
+  ct_run "curl -fsSL https://deb.nodesource.com/setup_$${NODE_MAJOR}.x | bash -"
+  ct_run 'apt-get install -y -qq nodejs'
+fi
+ct_run 'node --version && npm --version'
+
+# 4. Persistent dirs on the bind mount (survives LXC rebuild)
+ct_run "mkdir -p $DATA_DIR/npm-global $DATA_DIR/state $DATA_DIR/playwright"
+
+# 5. Configure npm to install global packages on the persistent bind
+ct_run "npm config set prefix $DATA_DIR/npm-global"
+ct_run "cat > /etc/profile.d/openclaw.sh <<'EOF'
+export PATH=$DATA_DIR/npm-global/bin:\$PATH
+export PLAYWRIGHT_BROWSERS_PATH=$DATA_DIR/playwright
+EOF"
+ct_run "chmod 0755 /etc/profile.d/openclaw.sh"
+
+# 6. Install OpenClaw (idempotent — npm install -g re-runs are no-ops if same version)
+echo "==> Installing $OPENCLAW_PKG"
+ct_run "npm install -g $OPENCLAW_PKG"
+
+# 7. Playwright system deps (Chromium needs ~80 packages; this is heavy but one-time)
+echo "==> Installing Playwright system deps + Chromium"
+ct_run "PLAYWRIGHT_BROWSERS_PATH=$DATA_DIR/playwright npx --yes playwright install-deps chromium"
+ct_run "PLAYWRIGHT_BROWSERS_PATH=$DATA_DIR/playwright npx --yes playwright install chromium"
+
+# 8. Verify
+echo "==> Verification:"
+ct_run "openclaw --version 2>&1 | head -3 || echo 'openclaw not on PATH (re-login or source /etc/profile.d/openclaw.sh)'"
+
+# 9. NOT auto-starting the daemon — first-run configuration needs the user's
+#    API keys (Claude/OpenAI/messaging tokens). README documents the steps.
+
+cat <<EOF
+
+==> OpenClaw is installed. Daemon NOT started yet (needs API keys).
+
+    Next steps (manual, requires your credentials):
+
+      ssh root@<this LXC's IP>
+      openclaw onboard --install-daemon
+        # interactive: pastes Claude/OpenAI key, optionally messaging
+        # integration tokens (Telegram, Slack, etc.)
+
+      systemctl status openclaw
+
+    Or for a one-off run without daemonizing:
+      openclaw gateway --port 18789 --verbose
+
+EOF

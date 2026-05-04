@@ -398,6 +398,78 @@ variable "rancher_bootstrap_password" {
 }
 
 # =============================================================================
+# OpenClaw LXC (optional — gated by var.openclaw_enabled)
+#
+# Privileged Debian LXC running OpenClaw (autonomous AI assistant). Uses Docker
+# as a sandbox backend (so the LXC needs nesting+keyctl features) and Playwright
+# for browser automation. Defaults sized for a 4-core / 32 GiB N150 host with
+# k3s VM + MinIO + Plex already running.
+# =============================================================================
+
+variable "openclaw_enabled" {
+  type        = bool
+  default     = false
+  description = "Deploy the OpenClaw LXC. Defaults off — flip to true (in tfvars or via TF_VAR_openclaw_enabled=true) when you want OpenClaw."
+}
+
+variable "openclaw_hostname" {
+  type    = string
+  default = "openclaw"
+}
+
+variable "openclaw_ip" {
+  type    = string
+  default = "192.168.0.189"
+}
+
+variable "openclaw_cores" {
+  type    = number
+  default = 4
+}
+
+variable "openclaw_memory_mb" {
+  type    = number
+  default = 6144
+}
+
+variable "openclaw_rootfs_size" {
+  type    = string
+  default = "40G"
+}
+
+variable "openclaw_storage_pool" {
+  type    = string
+  default = "local-zfs"
+}
+
+variable "openclaw_template" {
+  type    = string
+  default = "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
+}
+
+variable "openclaw_bind_host_path" {
+  type        = string
+  default     = "/nvme-pool/openclaw"
+  description = "Host path for OpenClaw persistent state. Pre-create with `mkdir -p /nvme-pool/openclaw && chown 1000:1000 /nvme-pool/openclaw`."
+}
+
+variable "openclaw_bind_ct_path" {
+  type    = string
+  default = "/srv/openclaw"
+}
+
+variable "openclaw_node_major_version" {
+  type    = string
+  default = "24"
+}
+
+variable "openclaw_pkg_spec" {
+  type        = string
+  default     = "openclaw@latest"
+  description = "npm package spec. Pin to a version (e.g. openclaw@1.2.3) for reproducibility."
+}
+
+# =============================================================================
 # Plex LXC (optional — gated by var.plex_enabled)
 #
 # Privileged Debian LXC with /dev/dri bind-mounted from the host for QuickSync

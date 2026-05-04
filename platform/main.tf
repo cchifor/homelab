@@ -33,6 +33,38 @@ module "nas_minio" {
   proxmox_host_ssh_private_key_path = pathexpand(var.proxmox_host_ssh_private_key_path)
 }
 
+module "openclaw_lxc" {
+  count  = var.openclaw_enabled ? 1 : 0
+  source = "./modules/proxmox_lxc_openclaw"
+
+  node_name = var.pm_node_name
+  hostname  = var.openclaw_hostname
+
+  ip      = var.openclaw_ip
+  gateway = var.lan_gateway
+  dns     = var.lan_dns
+  bridge  = var.bridge
+  mtu     = var.mtu
+
+  cores        = var.openclaw_cores
+  memory_mb    = var.openclaw_memory_mb
+  rootfs_size  = var.openclaw_rootfs_size
+  storage_pool = var.openclaw_storage_pool
+  template     = var.openclaw_template
+
+  bind_host_path = var.openclaw_bind_host_path
+  bind_ct_path   = var.openclaw_bind_ct_path
+
+  node_major_version = var.openclaw_node_major_version
+  openclaw_pkg_spec  = var.openclaw_pkg_spec
+
+  ssh_public_key = var.cp_ssh_public_key
+
+  proxmox_host_address              = var.proxmox_host_address
+  proxmox_host_ssh_user             = var.proxmox_host_ssh_user
+  proxmox_host_ssh_private_key_path = pathexpand(var.proxmox_host_ssh_private_key_path)
+}
+
 module "plex_lxc" {
   count  = var.plex_enabled ? 1 : 0
   source = "./modules/proxmox_lxc_plex"
