@@ -1,0 +1,114 @@
+# paperless-ngx values for the homelab.
+#
+# Chart: gabe565/paperless-ngx 0.24.1 (paperless-ngx 2.14.7)
+# Public via Cloudflare Tunnel. OCR + searchable document archive.
+# Hostname: paperless.chifor.dev
+
+# === Image ===
+image:
+  repository: ghcr.io/paperless-ngx/paperless-ngx
+  tag: 2.14.7
+
+# === Application config ===
+env:
+  TZ: Europe/Bucharest
+  PAPERLESS_TIME_ZONE: Europe/Bucharest
+  PAPERLESS_OCR_LANGUAGE: eng+ron   # English + Romanian
+  PAPERLESS_URL: https://paperless.chifor.dev
+  PAPERLESS_ALLOWED_HOSTS: paperless.chifor.dev
+  PAPERLESS_CSRF_TRUSTED_ORIGINS: https://paperless.chifor.dev
+  PAPERLESS_USE_X_FORWARD_HOST: "true"
+  PAPERLESS_USE_X_FORWARD_PORT: "true"
+  PAPERLESS_PROXY_SSL_HEADER: "['HTTP_X_FORWARDED_PROTO', 'https']"
+
+# secret_key, admin_password, db_password set via --set on helm install
+# (chart accepts PAPERLESS_SECRET_KEY, PAPERLESS_ADMIN_PASSWORD env vars
+#  or via the `auth.passwordSecret` reference)
+
+# === Service ===
+service:
+  main:
+    ports:
+      http:
+        port: 8000
+
+# === Ingress ===
+# Note: gabe565/paperless-ngx 0.24.1 doesn't expose `className`/`ingressClassName`
+# at the values level — the chart's rendered Ingress doesn't include the field
+# at all, so k8s falls through to the default IngressClass (traefik in k3s).
+# Force the cloudflare-tunnel class via the legacy annotation, which the
+# operator picks up.
+ingress:
+  main:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: cloudflare-tunnel
+    hosts:
+      - host: paperless.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []  # CF terminates TLS
+
+# === Persistence ===
+persistence:
+  data:
+    enabled: true
+    storageClass: longhorn
+    size: 5Gi
+    accessMode: ReadWriteOnce
+  media:
+    enabled: true
+    storageClass: longhorn
+    size: 30Gi
+    accessMode: ReadWriteOnce
+  consume:
+    enabled: true
+    storageClass: longhorn
+    size: 5Gi
+    accessMode: ReadWriteOnce
+  export:
+    enabled: true
+    storageClass: longhorn
+    size: 5Gi
+    accessMode: ReadWriteOnce
+
+# === Subchart: PostgreSQL ===
+# Bitnami removed many free image tags from docker.io/bitnami/* in Aug 2025.
+# Pin to the postgres-16 image at bitnamilegacy/* (Bitnami's archive of
+# pre-removal tags) and accept the chart's "non-standard image" gate via
+# global.security.allowInsecureImages.
+postgresql:
+  enabled: true
+  image:
+    repository: bitnamilegacy/postgresql
+    tag: 16.4.0-debian-12-r0
+  global:
+    security:
+      allowInsecureImages: true
+    postgresql:
+      auth:
+        username: paperless
+        database: paperless
+        # password set via --set on helm install
+  primary:
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      size: 5Gi
+
+# === Cache backend: Valkey (Redis fork; we deploy it as a standalone manifest
+# and disable the chart's Bitnami-redis subchart) ===
+redis:
+  enabled: false
+
+# Paperless connects to Valkey via REDIS_URL env var (Valkey speaks the Redis
+# wire protocol). Service name `paperless-valkey` matches the manifest in
+# apps/charts/paperless-ngx-values/valkey.yaml — apply it before helm install.
+env:
+  PAPERLESS_REDIS: redis://paperless-valkey.paperless.svc.cluster.local:6379
+
+# === Resource limits ===
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { memory: 1Gi }

@@ -1,0 +1,59 @@
+# Standalone Valkey for paperless-ngx — Redis-protocol compatible cache.
+# Replaces the chart's bundled Bitnami redis subchart (which broke after
+# Bitnami removed many free image tags from docker.io/bitnami/* in Aug 2025).
+#
+# Apply BEFORE the paperless helm install:
+#   kubectl apply -f apps/charts/paperless-ngx-values/valkey.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperless-valkey
+  namespace: paperless
+spec:
+  selector:
+    app: paperless-valkey
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: valkey
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: paperless-valkey
+  namespace: paperless
+spec:
+  serviceName: paperless-valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paperless-valkey
+  template:
+    metadata:
+      labels:
+        app: paperless-valkey
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey:8-alpine
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--save"
+            - ""              # Disable persistence (paperless redis use is purely task-queue, regenerable)
+            - "--appendonly"
+            - "no"
+          ports:
+            - containerPort: 6379
+              name: valkey
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { memory: 256Mi }
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: { port: 6379 }
+            initialDelaySeconds: 2
+            periodSeconds: 5

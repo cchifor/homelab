@@ -1,0 +1,87 @@
+# nextcloud values for the homelab.
+#
+# Chart: nextcloud/nextcloud 9.0.6 (nextcloud 33.0.3)
+# Public via Cloudflare Tunnel. Self-hosted file sync, calendar, contacts.
+# Hostname: nextcloud.chifor.dev
+
+# === Image ===
+image:
+  repository: nextcloud
+  tag: 33-apache
+
+# === Nextcloud config ===
+nextcloud:
+  host: nextcloud.chifor.dev
+
+  username: admin
+  # password set via --set on helm install
+
+  trustedDomains:
+    - nextcloud.chifor.dev
+
+  # Override URL generation for cloudflare-tunnel reverse proxy:
+  # CF terminates TLS, app sees plain HTTP from cloudflared. Without these
+  # overrides nextcloud generates http:// links and breaks under HSTS.
+  configs:
+    proxy.config.php: |-
+      <?php
+      $CONFIG = array(
+        'overwriteprotocol' => 'https',
+        'overwritehost'     => 'nextcloud.chifor.dev',
+        'overwrite.cli.url' => 'https://nextcloud.chifor.dev',
+        'trusted_proxies'   => array('10.42.0.0/16'),
+        'maintenance_window_start' => 1,
+      );
+
+# === Service ===
+service:
+  type: ClusterIP
+
+# === Ingress ===
+ingress:
+  enabled: true
+  className: cloudflare-tunnel
+  annotations: {}
+  tls: []  # CF terminates TLS
+
+# === Persistence ===
+persistence:
+  enabled: true
+  storageClass: longhorn
+  size: 50Gi
+  accessMode: ReadWriteOnce
+
+# === Subchart: MariaDB ===
+internalDatabase:
+  enabled: false
+
+mariadb:
+  enabled: true
+  auth:
+    username: nextcloud
+    database: nextcloud
+    # rootPassword + password set via --set on helm install
+  primary:
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      size: 10Gi
+
+# === Subchart: Redis (for file locking + caching) ===
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
+
+# === Cron job (sidecar that runs nextcloud's housekeeping every 5 min) ===
+cronjob:
+  enabled: true
+
+# === Resource limits ===
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits:   { memory: 1Gi }

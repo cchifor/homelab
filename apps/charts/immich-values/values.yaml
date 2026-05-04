@@ -1,0 +1,81 @@
+# immich values for the homelab.
+#
+# Chart: immich/immich 0.11.1 (immich v2.6.3)
+# Public via Cloudflare Tunnel. Self-hosted Google Photos alternative.
+# Hostname: immich.chifor.dev
+#
+# Components included via subcharts: PostgreSQL (with pgvecto.rs / pgvector),
+# Redis. The chart auto-creates ML, server, and microservices Deployments.
+
+env:
+  TZ: Europe/Bucharest
+  IMMICH_LOG_LEVEL: log
+
+# === Image library storage (photos + thumbnails + uploads) ===
+image:
+  repository: ghcr.io/immich-app/immich-server
+
+# === Persistent volumes ===
+# Chart can't auto-create the library PVC — pre-create one named immich-library
+# in the immich namespace and reference it here. (See README.md for the kubectl
+# apply manifest.)
+immich:
+  persistence:
+    library:
+      existingClaim: immich-library
+
+# === Server ===
+server:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits:   { memory: 2Gi }
+
+  # The chart's "server.ingress" is the front-door for both web + API.
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: cloudflare-tunnel
+      hosts:
+        - host: immich.chifor.dev
+          paths:
+            - path: /
+              pathType: Prefix
+      tls: []
+
+# === Machine Learning service (face detection, smart search, OCR) ===
+machine-learning:
+  enabled: true
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits:   { memory: 2Gi }
+  # Use the CPU-only ML image — workers are ARM64 with Mali GPU (no Plex-style
+  # ML acceleration). CPU ML is slow but works.
+  image:
+    repository: ghcr.io/immich-app/immich-machine-learning
+
+# === Subchart: Postgres (immich's chart bundles a tuned postgres image) ===
+postgresql:
+  enabled: true
+  global:
+    postgresql:
+      auth:
+        username: immich
+        database: immich
+        # password set via --set on helm install
+  primary:
+    persistence:
+      enabled: true
+      size: 30Gi
+      storageClass: longhorn
+
+# === Subchart: Redis ===
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
