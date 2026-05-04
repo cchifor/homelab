@@ -72,19 +72,43 @@ kubectl -n opencloud create configmap opencloud-keycloak-script \
 kubectl -n opencloud rollout restart deploy/opencloud-keycloak
 ```
 
+## REQUIRED post-install step: reset the realm admin password
+
+The chart imports a demo realm (`opencloud-keycloak-realm` ConfigMap)
+containing 6 hardcoded users — `admin`, `alan`, `dennis`, `lynn`,
+`margaret`, `mary` — each with an Argon2-hashed **demo** password baked
+into the export. Our `--set "opencloud.adminPassword=..."` doesn't
+override these (it sets a different chart-internal value). Without
+this step, login fails with "invalid password" no matter what's in
+`.secrets.env`.
+
+Run the included reset script after every `helm install` of opencloud:
+
+```bash
+bash apps/charts/opencloud-values/reset-realm-admin-password.sh
+```
+
+It uses Keycloak's Admin API (authenticated with the chart-generated
+master-admin) to set the openCloud realm `admin` user's password to
+`OC_ADMIN_PASSWORD` from `.secrets.env`. Idempotent — safe to re-run.
+
+To delete the demo users `alan/dennis/lynn/margaret/mary`, use the
+Keycloak admin UI (https://kc-cloud.chifor.dev/admin → openCloud realm
+→ Users → delete each), or extend the script.
+
 ## First login
 
-After install:
+After install + running the password-reset script:
 - URL: **https://cloud.chifor.dev**
 - Login redirects to Keycloak at https://kc-cloud.chifor.dev (browser-side redirect; Keycloak must be reachable from where you log in from).
 - **OpenCloud admin** (the user that signs into OpenCloud itself):
   - Username: `admin`
-  - Password: `$OC_ADMIN_PASSWORD` from `.secrets.env`
+  - Password: `$OC_ADMIN_PASSWORD` from `.secrets.env`  ← matches AFTER running reset script
 - **Keycloak admin** (for managing Keycloak itself — separate from OpenCloud admin):
   - URL: https://kc-cloud.chifor.dev/admin
   - Realm: `master`
   - Username: `admin`
-  - Password: `$OC_KEYCLOAK_ADMIN_PASSWORD` from `.secrets.env`
+  - Password: from `kubectl -n opencloud get secret opencloud-keycloak -o jsonpath='{.data.adminPassword}' \| base64 -d`. The chart-managed value is **not** what's in `.secrets.env` as `OC_KEYCLOAK_ADMIN_PASSWORD` — the chart's `--set keycloak.internal.adminPassword` setting wasn't honored either. The actual Keycloak admin password is in the `opencloud-keycloak` Secret.
 
 Both passwords should be rotated via their respective UIs after first login.
 
