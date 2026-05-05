@@ -47,31 +47,19 @@ First install runs `occ upgrade` + plugin enable; takes ~3 min before `/status.p
 
 Default client folders auto-created in your data tree: `Documents/`, `Music/`, `Photos/`, `Templates/` (plus the Nextcloud manual + intro PDFs). Navidrome reads only the `Music/` subfolder.
 
-## Authentik OIDC integration (`user_oidc`)
-
-The Authentik provider + application + k8s Secret were created by `apps/scripts/authentik-oidc-bootstrap.py`. The `user_oidc` Nextcloud app + provider config is set up by the install command snippet below — re-run if the Nextcloud DB is wiped:
+## Post-install defaults
 
 ```bash
-NC_CID=$(kubectl -n nextcloud get secret authentik-oidc -o jsonpath='{.data.client-id}' | base64 -d)
-NC_CSEC=$(kubectl -n nextcloud get secret authentik-oidc -o jsonpath='{.data.client-secret}' | base64 -d)
-
-kubectl -n nextcloud exec deploy/nextcloud -c nextcloud -- bash -c "
-  cd /var/www/html
-  su -s /bin/sh www-data -c 'php occ app:install user_oidc'
-  su -s /bin/sh www-data -c \"php occ user_oidc:provider 'Authentik' \
-    --clientid='$NC_CID' \
-    --clientsecret='$NC_CSEC' \
-    --discoveryuri='https://authentik.chifor.dev/application/o/nextcloud/.well-known/openid-configuration' \
-    --scope='openid email profile' \
-    --mapping-uid='preferred_username' \
-    --mapping-display-name='name' \
-    --mapping-email='email' \
-    --unique-uid=0\"
-  su -s /bin/sh www-data -c 'php occ config:app:set user_oidc auto_provision --value=1'
-"
+python apps/scripts/nextcloud-defaults.py
 ```
 
-After this, the Nextcloud login page exposes a "Login with Authentik" button. Authentik users are auto-provisioned in Nextcloud on first sign-in (with `mapping-uid: preferred_username` so the Nextcloud username matches your Authentik account).
+Idempotent script that handles the things the chart can't:
+
+1. Installs + enables the `user_oidc` app and registers Authentik as a provider (reads client-id / client-secret from the `authentik-oidc` Secret in the nextcloud namespace, set up by `apps/scripts/authentik-oidc-bootstrap.py`).
+2. Disables Nextcloud apps unrelated to file management — `activity`, `dashboard`, `photos`, `circles`, `comments`, `recommendations`, `weather_status`, `webhook_listeners`, `nextcloud_announcements`, `survey_client`, `support`, `privacy`, `related_resources`, `contactsinteraction`, `federation`. (`cloud_federation_api`, `federatedfilesharing`, `lookup_server_connector` are Nextcloud-shipped and refuse to disable; benign.)
+3. Sets `defaultapp=files` so login lands on the file list, not the generic dashboard.
+
+After this, the Nextcloud login page exposes a "Login with Authentik" button. Authentik users are auto-provisioned in Nextcloud on first sign-in (`mapping-uid: preferred_username` so the Nextcloud username matches your Authentik account).
 
 ## Storage layout (shared with Navidrome)
 
