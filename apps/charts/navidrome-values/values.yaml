@@ -40,11 +40,16 @@ controllers:
 
 # Navidrome image runs as uid 1000 by default; fsGroup makes the kubelet
 # chgrp the PVCs to gid 1000 on mount so first-launch DB init can write.
+# supplementalGroups [33] lets Navidrome read music files Nextcloud writes
+# on the shared NFS volume (Nextcloud creates files mode 0640 owned by uid
+# 33 / gid 33 = www-data; gid 33 supplementary group lets Navidrome's
+# uid 1000 process get past the group-read bit).
 defaultPodOptions:
   securityContext:
     fsGroup: 1000
     runAsUser: 1000
     runAsGroup: 1000
+    supplementalGroups: [33]
     fsGroupChangePolicy: OnRootMismatch
 
 # === Service ===
@@ -128,10 +133,14 @@ persistence:
           - path: /data
   music:
     enabled: true
-    storageClass: longhorn
-    size: 50Gi
-    accessMode: ReadWriteOnce
+    # NFS-backed PVC shared with Nextcloud. Files Nextcloud writes to
+    # cloud.chifor.dev/Music/* end up at <NFS root>/data/chifor/files/Music
+    # on the NAS LXC. Mount that subdirectory only -- Navidrome should NOT
+    # see other Nextcloud users / appdata / metadata.
+    existingClaim: navidrome-music
     advancedMounts:
       main:
         main:
           - path: /music
+            subPath: data/chifor/files/Music
+            readOnly: true

@@ -1,0 +1,39 @@
+# Public access for Navidrome via Cloudflare Tunnel.
+#
+# Direct CF Tunnel -> navidrome service would BYPASS the Authentik
+# forward-auth Middleware that lives in Traefik. Instead, route the
+# tunnel at the Traefik service, so requests flow:
+#
+#   Internet -> Cloudflare -> Tunnel -> cloudflared pod -> Traefik
+#     -> (Traefik IngressRoutes by path)
+#         -> /outpost.goauthentik.io/*  : authentik-server outpost
+#         -> /rest, /share              : navidrome (no auth, Subsonic)
+#         -> /*                         : navidrome (Authentik forward-auth)
+#
+# Subsonic clients (DSub, play:Sub, Symfonium) hitting /rest/* keep using
+# Navidrome's HTTP-basic; the web UI gets Authentik SSO. Same routing as
+# on the LAN; the only change is the additional CF Tunnel ingress.
+#
+# Apply: kubectl apply -f apps/charts/navidrome-values/public-tunnel.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: navidrome-public-tunnel
+  namespace: kube-system
+  annotations:
+    # Update the Authentik proxy provider's external_host to https://music.chifor.dev
+    # if you ever change this hostname (apps/scripts/authentik-oidc-bootstrap.py).
+    chifor.dev/purpose: "public-cf-tunnel-for-navidrome-via-traefik"
+spec:
+  ingressClassName: cloudflare-tunnel
+  rules:
+    - host: music.chifor.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik       # k3s ships Traefik in kube-system
+                port:
+                  number: 80

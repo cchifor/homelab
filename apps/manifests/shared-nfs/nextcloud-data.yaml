@@ -1,0 +1,90 @@
+# Shared NFS volume exported by the NAS LXC (192.168.0.186) at
+# /mnt/storage/cloud-data (host: /nvme-pool/cloud-data).
+#
+# Used by:
+#   - Nextcloud  (mounted as /var/www/html/data, RW, full tree)
+#   - Navidrome  (mounted as /music, subPath chifor/files/Music, RO-ish)
+#
+# Shared backend means Nextcloud uploads to <user>/files/Music/ are
+# immediately visible to Navidrome's library scanner. No file copy / sync.
+#
+# Two PVs (one per consumer) since standard Ingress-style PV/PVC are 1:1
+# bound — each pod's PVC binds to its own PV that points at the SAME NFS
+# export. K8s allows that.
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nextcloud-data-nfs
+  labels:
+    role: shared-cloud-data
+    consumer: nextcloud
+spec:
+  capacity:
+    storage: 500Gi   # advisory only for NFS; actual cap is the ZFS pool
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""           # static binding, no provisioner
+  mountOptions:
+    - nfsvers=4.2
+    - noatime
+    - nconnect=4               # parallel TCP for big uploads
+  nfs:
+    server: 192.168.0.186
+    path: /mnt/storage/cloud-data
+  claimRef:
+    namespace: nextcloud
+    name: nextcloud-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-data
+  namespace: nextcloud
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 500Gi
+  volumeName: nextcloud-data-nfs
+
+---
+# Same NFS export, second PV for Navidrome. The pod will mount it with
+# subPath=chifor/files/Music so it only sees the music subdirectory.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: navidrome-music-nfs
+  labels:
+    role: shared-cloud-data
+    consumer: navidrome
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    - nfsvers=4.2
+    - noatime
+  nfs:
+    server: 192.168.0.186
+    path: /mnt/storage/cloud-data
+  claimRef:
+    namespace: navidrome
+    name: navidrome-music
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: navidrome-music
+  namespace: navidrome
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 500Gi
+  volumeName: navidrome-music-nfs

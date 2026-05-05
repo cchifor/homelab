@@ -300,6 +300,15 @@ APPS = [
         "redirect_uris": ["https://nodered.chifor.dev/auth/strategy/callback"],
         "namespace": "node-red",
     },
+    {
+        "slug": "nextcloud",
+        "name": "Nextcloud",
+        # user_oidc app's standard callback path. Provider config in
+        # Nextcloud is under Settings -> OpenID Connect once the
+        # user_oidc app is installed (occ app:install user_oidc).
+        "redirect_uris": ["https://cloud.chifor.dev/apps/user_oidc/code"],
+        "namespace": "nextcloud",
+    },
     # Apps without native OIDC use Authentik's Embedded Outpost via Traefik
     # forward-auth. No client_id/client_secret to store; the app trusts the
     # X-authentik-username header injected by the outpost.

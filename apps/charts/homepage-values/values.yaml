@@ -82,10 +82,10 @@ config:
             href: https://gitea.chifor.dev
             description: Git hosting (public)
             icon: gitea.png
-        - OpenCloud:
+        - Nextcloud:
             href: https://cloud.chifor.dev
             description: File sync + sharing (public)
-            icon: opencloud.png
+            icon: nextcloud.png
         - Immich:
             href: https://immich.chifor.dev
             description: Photo library (public)

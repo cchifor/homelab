@@ -1,0 +1,147 @@
+# nextcloud values for the homelab.
+#
+# Chart: nextcloud/nextcloud 9.0.6 (Nextcloud 33.0.3)
+# Public via Cloudflare Tunnel at https://cloud.chifor.dev.
+#
+# Architecture choice: data dir lives on the shared NFS PVC so Navidrome
+# can mount the same backend with subPath=<user>/files/Music. Drop a
+# track in via Nextcloud web/sync -> appears as a file on the NFS share
+# -> Navidrome rescans within 5 min (or trigger via API).
+#
+# Storage layout:
+#   /var/www/html      <- Longhorn 5 GiB (chart code, cache, .htaccess)
+#   /var/www/html/data <- NFS PVC nextcloud-data (the actual user files)
+
+image:
+  # Default Apache flavor: single container listening on :80, no nginx
+  # sidecar fiddling. Slightly larger image but materially simpler.
+  tag: "33.0.3"
+
+# === Public hostname (honoured by chart's Ingress + by Nextcloud's
+# trusted_domains config) ===
+nextcloud:
+  host: cloud.chifor.dev
+  username: chifor
+  # password set via --set on helm install (sourced from .secrets.env)
+
+  # Trust the proxy so Nextcloud generates correct https:// URLs.
+  # Cluster pod CIDR + Cloudflare's announced ranges aren't worth
+  # enumerating; trust the immediate hop (Traefik/cloudflared in pods).
+  trustedDomains:
+    - cloud.chifor.dev
+  # Note: NEXTCLOUD_TRUSTED_PROXIES is set as env var below.
+
+  configs:
+    proxy.config.php: |
+      <?php
+      $CONFIG = array(
+        'trusted_proxies' => ['10.42.0.0/16'],
+        'overwriteprotocol' => 'https',
+        'overwritehost' => 'cloud.chifor.dev',
+        # Disable maintenance_window_start cron complaints in a single-pod install
+        'maintenance_window_start' => 1,
+        # File locking via DB (Redis is disabled below)
+        'filelocking.enabled' => true,
+        # Default phone region for sane number parsing (no functional impact)
+        'default_phone_region' => 'RO',
+      );
+
+# === Ingress (PUBLIC via Cloudflare Tunnel) ===
+ingress:
+  enabled: true
+  className: cloudflare-tunnel
+  annotations: {}
+  tls: []     # Cloudflare terminates TLS at the edge
+
+# === Persistence ===
+# Code/config volume on Longhorn (small); data dir on the shared NFS PVC
+# (RWX, served by NAS LXC at 192.168.0.186:/mnt/storage/cloud-data).
+# The chart's `nextcloudData.existingClaim` switches the data subPath
+# from the main PVC to a separate one -- this is the chart-supported
+# split-storage pattern.
+persistence:
+  enabled: true
+  storageClass: longhorn
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  nextcloudData:
+    enabled: true
+    existingClaim: nextcloud-data    # NFS-backed; defined in apps/manifests/shared-nfs/
+    accessMode: ReadWriteMany
+
+# === Bundled PostgreSQL (sub-chart) ===
+mariadb: { enabled: false }
+postgresql:
+  enabled: true
+  image:
+    # Bitnami removed many free image tags from docker.io/bitnami/* in
+    # Aug 2025; pin to bitnamilegacy archive (same pattern as paperless).
+    repository: bitnamilegacy/postgresql
+    tag: 16.4.0-debian-12-r0
+  global:
+    security:
+      allowInsecureImages: true
+    postgresql:
+      auth:
+        username: nextcloud
+        database: nextcloud
+        # password set via --set on helm install
+  primary:
+    persistence:
+      enabled: true
+      storageClass: longhorn
+      size: 5Gi
+
+internalDatabase: { enabled: false }   # use bundled postgres
+externalDatabase:
+  enabled: true
+  type: postgresql
+  host: nextcloud-postgresql
+  user: nextcloud
+  database: nextcloud
+  # password set via --set on helm install
+
+# === Redis (disabled) ===
+# Bitnami redis subchart has the same image-archive issue; for a
+# single-user homelab the file-locking + memcache benefit isn't worth
+# the maintenance burden. Re-enable with bitnamilegacy/redis or a
+# standalone Valkey manifest if performance becomes an issue.
+redis:
+  enabled: false
+
+# === Cron (background jobs) — sidecar, runs every 15 min ===
+cronjob:
+  enabled: true
+
+# === Resource limits ===
+# Nextcloud's first-launch upgrade pass (occ upgrade + plugin install) uses
+# ~1.4 GiB peak. 1 GiB cap = exitCode 137 OOM-loop on first install.
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 2Gi
+
+# === Probes ===
+# `occ upgrade` on a cold install can take 90-120s before the HTTP listener
+# returns 200 on /status.php. Default chart probes hit failureThreshold
+# during that window and kubelet restarts the pod -> infinite loop.
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 180
+  periodSeconds: 30
+  failureThreshold: 5
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 6
+startupProbe:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  failureThreshold: 30   # gives ~5 min for first-init; subsequent boots <30s
+
+# === Replicas: keep at 1 (single-writer to NFS data dir simplifies fs locks) ===
+replicaCount: 1
