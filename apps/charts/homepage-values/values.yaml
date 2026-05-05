@@ -106,6 +106,14 @@ config:
             href: https://music.chifor.dev
             description: Music streamer (LAN)
             icon: navidrome.png
+        - Plex:
+            # app.plex.tv is Plex's universal web app — auto-discovers your
+            # server whether you're on LAN (direct connection) or remote
+            # (via plex.direct + Plex Pass remote access). No homepage edit
+            # needed when LAN IPs change.
+            href: https://app.plex.tv
+            description: Movies + TV (Plex Pass, public via Remote Access)
+            icon: plex.png
 
     - Platform:
         - ArgoCD:
