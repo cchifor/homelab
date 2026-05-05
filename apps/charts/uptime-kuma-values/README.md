@@ -30,7 +30,21 @@ Uptime Kuma has no API key bootstrap; the admin account is created via the web w
 3. After login, add monitors via the UI (next section).
 4. Configure notification channels in **Settings → Notifications** (email, webhook, ntfy, etc.) — pick at least one so alerts actually reach you.
 
-**Once admin is created**, the Uptime Kuma API can be scripted via the `uptime-kuma-api` Python package (`pip install uptime-kuma-api`). A starter automation script could batch-add the monitors below, but the initial admin must be created manually first.
+**Once admin is created**, the rest of the monitor list can be batch-added by `apps/scripts/uptime-kuma-bootstrap.py` (uses the unofficial Socket.IO API via the `uptime-kuma-api` Python package). Run it from the repo root:
+
+```bash
+pip install --user uptime-kuma-api
+export UPTIME_KUMA_USERNAME=admin
+export UPTIME_KUMA_PASSWORD='<from Vaultwarden>'
+# either resolve uptime.chifor.dev locally (hosts file / LAN DNS):
+export UPTIME_KUMA_URL=https://uptime.chifor.dev
+# …or port-forward and point at localhost:
+#   kubectl -n uptime-kuma port-forward svc/uptime-kuma 13001:3001 &
+#   export UPTIME_KUMA_URL=http://127.0.0.1:13001
+python apps/scripts/uptime-kuma-bootstrap.py
+```
+
+The script is idempotent — re-run any time you deploy a new app, edit the `HTTP_MONITORS` / `PING_MONITORS` / `PORT_MONITORS` lists at the top and it'll add only the missing ones. Existing monitors (manually-tuned thresholds, custom check paths, attached notifications) are matched by `name` and left alone.
 
 ## DNS for LAN-only hostnames
 
