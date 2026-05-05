@@ -134,7 +134,7 @@ persistence:
   music:
     enabled: true
     # NFS-backed PVC shared with Nextcloud. Files Nextcloud writes to
-    # cloud.chifor.dev/Music/* end up at <NFS root>/data/chifor/files/Music
+    # cloud.chifor.dev/Music/* end up at <NFS root>/data/admin/files/Music
     # on the NAS LXC. Mount that subdirectory only -- Navidrome should NOT
     # see other Nextcloud users / appdata / metadata.
     existingClaim: navidrome-music
@@ -142,5 +142,5 @@ persistence:
       main:
         main:
           - path: /music
-            subPath: data/chifor/files/Music
+            subPath: data/admin/files/Music
             readOnly: true

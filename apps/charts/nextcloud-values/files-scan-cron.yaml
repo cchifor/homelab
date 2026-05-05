@@ -1,0 +1,90 @@
+# Periodic occ files:scan for the admin user.
+#
+# When files appear on the NFS share without going through Nextcloud
+# (e.g. rsync from the operator's machine into the share, or files that
+# Navidrome's read-only mount-point lets you drop directly), Nextcloud
+# doesn't know about them until `occ files:scan` runs. The chart's cron
+# sidecar handles Nextcloud's normal background jobs but NOT files:scan
+# -- it's an explicit admin op upstream considers expensive.
+#
+# This CronJob shells in via kubectl-style `occ` invocation against the
+# running pod every 15 min and rescans the admin user's tree. Cheap on a
+# warm Valkey / OPcache stack (sub-second for an empty tree, ~5 s for
+# tens of thousands of files), and only runs ONE concurrent job at a
+# time.
+#
+# Apply: kubectl apply -f apps/charts/nextcloud-values/files-scan-cron.yaml
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nextcloud-files-scan
+  namespace: nextcloud
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nextcloud-files-scan
+  namespace: nextcloud
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nextcloud-files-scan
+  namespace: nextcloud
+subjects:
+  - kind: ServiceAccount
+    name: nextcloud-files-scan
+    namespace: nextcloud
+roleRef:
+  kind: Role
+  name: nextcloud-files-scan
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nextcloud-files-scan
+  namespace: nextcloud
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          serviceAccountName: nextcloud-files-scan
+          restartPolicy: Never
+          containers:
+            - name: kubectl
+              image: bitnamilegacy/kubectl:1.30.6
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  POD=$(kubectl -n nextcloud get pod -l app.kubernetes.io/name=nextcloud,app.kubernetes.io/component=app \
+                    -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | awk '{print $1}')
+                  echo "scanning files for admin in pod $POD"
+                  kubectl -n nextcloud exec "$POD" -c nextcloud -- \
+                    su -s /bin/sh www-data -c 'php /var/www/html/occ files:scan admin --quiet'
+                  echo "done"
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits:   { memory: 128Mi }
