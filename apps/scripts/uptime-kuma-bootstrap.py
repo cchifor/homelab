@@ -74,10 +74,14 @@ PING_MONITORS = [
     {"group": "Infrastructure", "name": "NAS LXC (MinIO)", "host": "192.168.0.186"},
     {"group": "Infrastructure", "name": "k3s server",   "host": "192.168.0.187"},
     {"group": "Infrastructure", "name": "OpenClaw LXC", "host": "192.168.0.189"},
-    {"group": "Infrastructure", "name": "Worker q6a-1", "host": "192.168.0.191"},
-    {"group": "Infrastructure", "name": "Worker q6a-2", "host": "192.168.0.192"},
-    {"group": "Infrastructure", "name": "Worker q6a-3", "host": "192.168.0.193"},
-    {"group": "Infrastructure", "name": "Worker q6a-4", "host": "192.168.0.194"},
+    # Workers' actual IPs are DHCP-assigned, not the .191-.194 range from the
+    # original plan. Source of truth is `kubectl get nodes -o wide`. q6a-4
+    # lives on a different /24 (probably an SSID on the access-point bridge),
+    # but it's still reachable from cluster pods over the LAN.
+    {"group": "Infrastructure", "name": "Worker q6a-1", "host": "192.168.0.174"},
+    {"group": "Infrastructure", "name": "Worker q6a-2", "host": "192.168.0.200"},
+    {"group": "Infrastructure", "name": "Worker q6a-3", "host": "192.168.0.129"},
+    {"group": "Infrastructure", "name": "Worker q6a-4", "host": "192.168.1.167"},
 ]
 
 PORT_MONITORS = [
