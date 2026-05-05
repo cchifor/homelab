@@ -22,7 +22,34 @@ helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheu
   -f apps/charts/kube-prometheus-stack-values/values.yaml \
   --set "grafana.adminPassword=$GRAFANA_ADMIN_PASSWORD" \
   --timeout 15m
+
+# Custom dashboards (Longhorn, cert-manager, Homelab Overview) and the
+# ServiceMonitors that feed them:
+kubectl apply -k apps/manifests/grafana-dashboards/
+kubectl apply -f apps/manifests/servicemonitors/
+
+# Org-level Grafana defaults (home dashboard) -- not chart-managed,
+# stored in Grafana's DB. Re-run any time the Grafana PV is wiped.
+GRAFANA_URL=https://grafana.chifor.dev \
+GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD" \
+python apps/scripts/grafana-defaults.py
 ```
+
+## Admin password drift after first install
+
+`grafana.adminPassword` is only honoured at **first install** -- subsequent helm upgrades don't push it back into Grafana's DB. If basic-auth login starts failing with "invalid password", reset it back via grafana-cli inside the pod:
+
+```bash
+POD=$(kubectl -n monitoring get pod \
+  -l app.kubernetes.io/name=grafana,app.kubernetes.io/instance=kube-prometheus-stack \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl -n monitoring exec $POD -c grafana -- \
+  /usr/share/grafana/bin/grafana cli --homepath=/usr/share/grafana \
+  admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"
+kubectl -n monitoring rollout restart deploy/kube-prometheus-stack-grafana
+```
+
+Brute-force protection on `admin` accumulates across pod restarts (it's stored in Grafana's DB, not memory) -- if you've triggered the lockout, wait ~5 min after the last failed attempt before retrying.
 
 ## Access
 
