@@ -27,7 +27,29 @@ kubectl apply -f apps/charts/navidrome-values/authentik.yaml
 
 ## First login
 
-Browse https://music.chifor.dev — Navidrome shows a **"Create Admin"** screen on first launch. Pick a username + password; that account becomes the cluster admin. There is no chart-baked bootstrap secret.
+With the Authentik forward-auth integration enabled, Navidrome **does NOT show the Create-Admin screen** -- the admin user is auto-created from the `X-authentik-username` header on the first reverse-proxy request. The auto-generated password is random and you'll never see it.
+
+That's a problem for Subsonic clients (Amperfy, play:Sub, DSub etc.) which need a Navidrome-side username/password to authenticate the API at `/rest/*`. Web UI works fine via Authentik; mobile clients do not.
+
+To set a known Subsonic password, run:
+
+```bash
+# Generate + print a fresh random password:
+python apps/scripts/navidrome-defaults.py
+
+# Or supply your own (idempotent -- detects when the password already works):
+NAVIDROME_PASSWORD='your-pass' python apps/scripts/navidrome-defaults.py
+
+# Forcibly reset (overrides whatever's in the DB):
+NAVIDROME_FORCE_RESET=1 python apps/scripts/navidrome-defaults.py
+```
+
+The script handles three cases:
+1. user exists + supplied password works -> no-op
+2. user exists but password drifted (or `FORCE_RESET=1`) -> DELETE + recreate via reverse-proxy header + PATCH new password
+3. user missing -> auto-create via reverse-proxy header + PATCH new password
+
+Saves the result of (1)/(2)/(3) by hitting `/rest/ping` with the password and confirming `status:ok` before exiting. Stdlib-only Python.
 
 ## Adding music
 
