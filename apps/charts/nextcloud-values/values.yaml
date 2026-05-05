@@ -40,11 +40,47 @@ nextcloud:
         'overwritehost' => 'cloud.chifor.dev',
         # Disable maintenance_window_start cron complaints in a single-pod install
         'maintenance_window_start' => 1,
-        # File locking via DB (Redis is disabled below)
+        # File locking via Valkey (DB locking is the slow default)
         'filelocking.enabled' => true,
         # Default phone region for sane number parsing (no functional impact)
         'default_phone_region' => 'RO',
       );
+
+  # Performance tuning via env vars (image-side) + extra ini (mount).
+  #
+  # The chart ships a redis.config.php that auto-configures
+  # memcache.distributed/locking when REDIS_HOST is set -- so just point
+  # at our Valkey service via extraEnv and the file rendering takes care
+  # of the rest. memcache.local stays APCu (in-process, no network hop).
+  #
+  # PHP_MEMORY_LIMIT / PHP_UPLOAD_LIMIT / PHP_OPCACHE_MEMORY_CONSUMPTION
+  # are honoured by the image's docker-entrypoint.sh.
+  # opcache's max_accelerated_files + interned_strings_buffer aren't
+  # recognised by the entrypoint -- we mount an extra .ini for those
+  # via the volumes block lower down.
+  extraEnv:
+    - name: REDIS_HOST
+      value: nextcloud-valkey.nextcloud.svc.cluster.local
+    - name: REDIS_HOST_PORT
+      value: "6379"
+    - name: PHP_MEMORY_LIMIT
+      value: 1024M
+    - name: PHP_UPLOAD_LIMIT
+      value: 16G
+    - name: PHP_OPCACHE_MEMORY_CONSUMPTION
+      value: "256"
+
+  # Extra OPcache settings the image entrypoint doesn't understand.
+  # ConfigMap nextcloud-opcache-tuning is created by this chart's
+  # `extraVolumes`/`extraVolumeMounts` lower down.
+  extraVolumes:
+    - name: opcache-tuning
+      configMap:
+        name: nextcloud-opcache-tuning
+  extraVolumeMounts:
+    - name: opcache-tuning
+      mountPath: /usr/local/etc/php/conf.d/zz-opcache-tuning.ini
+      subPath: zz-opcache-tuning.ini
 
 # === Ingress (PUBLIC via Cloudflare Tunnel) ===
 ingress:
@@ -122,6 +158,7 @@ resources:
     memory: 512Mi
   limits:
     memory: 2Gi
+
 
 # === Probes ===
 # `occ upgrade` on a cold install can take 90-120s before the HTTP listener

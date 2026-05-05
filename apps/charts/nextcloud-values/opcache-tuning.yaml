@@ -1,0 +1,25 @@
+# Extra opcache .ini mounted into the Nextcloud pod at
+# /usr/local/etc/php/conf.d/zz-opcache-tuning.ini (last alphabetically so
+# it overrides any earlier opcache config from the image).
+#
+# memory_consumption is bumped via the PHP_OPCACHE_MEMORY_CONSUMPTION env
+# var the image's entrypoint understands (see values.yaml). The other
+# knobs aren't recognised by the entrypoint, hence this ConfigMap.
+#
+# Apply: kubectl apply -f apps/charts/nextcloud-values/opcache-tuning.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nextcloud-opcache-tuning
+  namespace: nextcloud
+data:
+  zz-opcache-tuning.ini: |
+    [opcache]
+    opcache.enable=1
+    opcache.enable_cli=1
+    opcache.max_accelerated_files=20000
+    opcache.interned_strings_buffer=64
+    opcache.revalidate_freq=60
+    opcache.save_comments=1
+    opcache.fast_shutdown=1

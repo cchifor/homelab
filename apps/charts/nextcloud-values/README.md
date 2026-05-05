@@ -19,6 +19,13 @@ NFS server must be reachable on the NAS LXC at `192.168.0.186:/mnt/storage/cloud
 ```bash
 # 1. Apply the shared NFS PVs (binds nextcloud-data + navidrome-music to the same NFS export):
 kubectl apply -f apps/manifests/shared-nfs/nextcloud-data.yaml
+
+# 2. Memcache + locking via Valkey (in-namespace, single pod, no auth):
+kubectl apply -f apps/charts/nextcloud-values/valkey.yaml
+
+# 3. OPcache tuning ConfigMap (max_accelerated_files=20000,
+#    interned_strings_buffer=64; mounted at /usr/local/etc/php/conf.d/):
+kubectl apply -f apps/charts/nextcloud-values/opcache-tuning.yaml
 ```
 
 ## Install
@@ -83,6 +90,32 @@ Permissions:
 - Nextcloud writes files mode 0640 owned by uid 33 / gid 33 (www-data)
 - Navidrome runs as uid 1000, with **supplementalGroups: [33]** so its process can read group-33 files
 - Navidrome's NFS mount uses **subPath `data/chifor/files/Music`** + **`readOnly: true`** → it sees only your Music/ tree, can't write or browse other users' files
+
+## Performance tuning applied
+
+What's wired in `values.yaml` + the side manifests, and why each matters:
+
+| Knob | Default (image) | Set to | Why |
+|---|---|---|---|
+| `memcache.local` | DB | APCu (in-PHP) | First-tier cache; APCu is process-local, ~ns reads. Set automatically by chart. |
+| `memcache.distributed` | DB | Redis (Valkey) | Cache shared across PHP workers — file metadata, JS bundles, share state. |
+| `memcache.locking` | **DB** | **Redis (Valkey)** | **Biggest single win** — Nextcloud's transactional file locking goes from 5–20 ms (Postgres) to <1 ms (Valkey). Visible in admin warnings as "Transactional File Locking: The database is used…" until this is set. |
+| `opcache.memory_consumption` | 128 MiB | 256 MiB | Holds compiled PHP bytecode. NC has lots of files; default fills up and starts evicting hot code. |
+| `opcache.max_accelerated_files` | 10 000 | 20 000 | Same — NC ships ~14 000 PHP files. |
+| `opcache.interned_strings_buffer` | 32 MiB | 64 MiB | Deduplicated strings (translation keys, config keys). |
+| `memory_limit` | 512 MiB | 1024 MiB | Long-running batch ops (`occ files:scan`, preview generation, `maintenance:repair --include-expensive`) overrun 512 with PHP fatal errors otherwise. |
+| `upload_max_filesize` / `post_max_size` | 2/8 MiB | 16 GiB | Allow uploads of full backups, mp4s, raw photo dumps. |
+
+Verified post-tuning via `occ setupchecks`:
+
+```
+✓ Transactional File Locking
+✓ Memcache: Configured
+✓ Mimetype migrations: None
+✓ PHP opcache: Correctly configured
+```
+
+**The chart's own `redis.config.php` template handles the Valkey wiring** when `REDIS_HOST` is set in the pod's env — that's why `extraEnv` does the work, not a custom config.php fragment. The chart filters `nextcloud.configs:` to a hardcoded list of known keys; arbitrary `cache.config.php` entries get dropped at template render time. (Tried that first — it silently produces no error and no file.)
 
 ## Quirks worth knowing
 

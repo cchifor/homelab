@@ -49,8 +49,10 @@ DISCOVERY_URL = os.getenv(
 # Apps to DISABLE -- everything not directly file-management or
 # auth/security/admin. The list intentionally errs on the side of
 # disabling things; re-enable any you actually want via the UI.
+#
+# NB: `activity` IS kept enabled -- the activity stream is the file
+# audit log we actually want for "what happened in my files lately".
 DISABLE_APPS = [
-    "activity",
     "circles",
     "comments",
     "contactsinteraction",
