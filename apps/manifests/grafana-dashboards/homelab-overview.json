@@ -1,0 +1,132 @@
+{
+  "uid": "homelab_overview",
+  "title": "Homelab Overview",
+  "tags": ["homelab", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "style": "dark",
+  "refresh": "30s",
+  "time": {"from": "now-3h", "to": "now"},
+  "links": [
+    {"title": "Longhorn Monitoring", "type": "dashboards", "tags": ["longhorn"], "asDropdown": false, "icon": "external link", "includeVars": false, "keepTime": true},
+    {"title": "cert-manager", "type": "dashboards", "tags": ["cert-manager"], "asDropdown": false, "icon": "external link", "includeVars": false, "keepTime": true},
+    {"title": "Kubernetes Cluster", "type": "link", "url": "/d/efa86fd1d0c121a26444b636a3f509a8/kubernetes-compute-resources-cluster", "icon": "external link"},
+    {"title": "Node Exporter", "type": "link", "url": "/d/200ac8fdbfbb74b39aff88118e4d1c2c/kubernetes-compute-resources-node-pods", "icon": "external link"}
+  ],
+  "panels": [
+    {
+      "id": 1, "type": "row", "title": "Cluster vitals", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "collapsed": false
+    },
+    {
+      "id": 2, "type": "stat", "title": "Nodes Ready",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 1},
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "yellow", "value": 1}, {"color": "green", "value": 5}]}}, "overrides": []},
+      "targets": [{"expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})", "refId": "A"}]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Pods Running",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 1},
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}}, "overrides": []},
+      "targets": [{"expr": "sum(kube_pod_status_phase{phase=\"Running\"})", "refId": "A"}]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Pods Failing",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 1},
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 1}, {"color": "red", "value": 3}]}}, "overrides": []},
+      "targets": [{"expr": "sum(kube_pod_status_phase{phase=~\"Failed|Unknown\"}) + sum(kube_pod_container_status_waiting_reason{reason=~\"CrashLoopBackOff|ImagePullBackOff|ErrImagePull\"})", "refId": "A"}]
+    },
+    {
+      "id": 5, "type": "gauge", "title": "Cluster CPU",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 0.7}, {"color": "red", "value": 0.9}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "targets": [{"expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))", "refId": "A"}]
+    },
+    {
+      "id": 6, "type": "gauge", "title": "Cluster Memory",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 0.7}, {"color": "red", "value": 0.9}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "targets": [{"expr": "1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)", "refId": "A"}]
+    },
+    {
+      "id": 7, "type": "gauge", "title": "Storage (Longhorn)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 0.7}, {"color": "red", "value": 0.85}]}}, "overrides": []},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "targets": [{"expr": "sum(longhorn_node_storage_usage_bytes) / sum(longhorn_node_storage_capacity_bytes)", "refId": "A"}]
+    },
+
+    {
+      "id": 10, "type": "row", "title": "Per-namespace activity", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5}, "collapsed": false
+    },
+    {
+      "id": 11, "type": "barchart", "title": "Pods by namespace",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "options": {"orientation": "horizontal", "stacking": "normal", "showValue": "auto", "barWidth": 0.8, "groupWidth": 0.7, "tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "right"}, "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
+      "fieldConfig": {"defaults": {"color": {"mode": "palette-classic"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}]}}, "overrides": []},
+      "targets": [{"expr": "sum by (namespace, phase) (kube_pod_status_phase) > 0", "refId": "A", "format": "table", "instant": true, "legendFormat": "{{namespace}} ({{phase}})"}]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Pod restarts (last 24h, by namespace)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1, "barAlignment": 0, "showPoints": "never", "stacking": {"mode": "normal"}}}, "overrides": []},
+      "options": {"legend": {"showLegend": true, "displayMode": "list", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total[24h]))", "refId": "A", "legendFormat": "{{namespace}}"}]
+    },
+
+    {
+      "id": 20, "type": "row", "title": "Per-node usage", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14}, "collapsed": false
+    },
+    {
+      "id": 21, "type": "timeseries", "title": "CPU usage by node",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}}, "overrides": []},
+      "options": {"legend": {"showLegend": true, "displayMode": "list", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "id": 22, "type": "timeseries", "title": "Memory usage by node",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never"}}, "overrides": []},
+      "options": {"legend": {"showLegend": true, "displayMode": "list", "placement": "right"}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "refId": "A", "legendFormat": "{{instance}}"}]
+    },
+
+    {
+      "id": 30, "type": "row", "title": "Certificates + Storage health", "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23}, "collapsed": false
+    },
+    {
+      "id": 31, "type": "table", "title": "TLS certificates expiring soon",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "fieldConfig": {"defaults": {"custom": {"align": "auto"}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "unit", "value": "s"}, {"id": "displayName", "value": "Expires in"}, {"id": "custom.cellOptions", "value": {"type": "color-text"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "yellow", "value": 604800}, {"color": "green", "value": 2592000}]}}]}
+      ]},
+      "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "container": true, "endpoint": true, "instance": true, "job": true, "service": true, "issuer_group": true, "issuer_kind": true, "issuer_name": true}, "indexByName": {"namespace": 0, "name": 1, "exported_namespace": 2, "Value": 3}}}],
+      "targets": [{"expr": "(certmanager_certificate_expiration_timestamp_seconds - time()) < 2592000", "refId": "A", "format": "table", "instant": true}]
+    },
+    {
+      "id": 32, "type": "timeseries", "title": "Longhorn volume actual size",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "fieldConfig": {"defaults": {"unit": "decbytes", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}, "overrides": []},
+      "options": {"legend": {"showLegend": true, "displayMode": "table", "placement": "right", "calcs": ["last", "max"]}, "tooltip": {"mode": "multi"}},
+      "targets": [{"expr": "longhorn_volume_actual_size_bytes", "refId": "A", "legendFormat": "{{pvc}}"}]
+    }
+  ]
+}

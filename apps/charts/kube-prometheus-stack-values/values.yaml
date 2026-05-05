@@ -48,6 +48,11 @@ grafana:
   grafana.ini:
     server:
       root_url: https://grafana.chifor.dev
+    users:
+      # Custom landing page — the homelab-overview dashboard is provisioned
+      # via apps/manifests/grafana-dashboards/ ; the sidecar writes its JSON
+      # to /tmp/dashboards/ and Grafana picks this up as the org default.
+      default_home_dashboard_path: /tmp/dashboards/homelab-overview.json
     auth:
       # Disable forced login redirect; the standard Grafana login still works
       # for "admin" while the OIDC button appears alongside it.

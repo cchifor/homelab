@@ -1,0 +1,24 @@
+# Each dashboard JSON becomes a ConfigMap with the `grafana_dashboard: "1"`
+# label so Grafana's sidecar (configured in kube-prometheus-stack values)
+# auto-imports it within ~30 seconds. Apply with:
+#   kubectl apply -k apps/manifests/grafana-dashboards/
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+
+configMapGenerator:
+  - name: dashboard-homelab-overview
+    files:
+      - homelab-overview.json
+  - name: dashboard-longhorn
+    files:
+      - longhorn.json
+  - name: dashboard-cert-manager
+    files:
+      - cert-manager.json
