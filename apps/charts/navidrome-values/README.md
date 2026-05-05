@@ -19,6 +19,10 @@ helm upgrade --install navidrome bjw-s/app-template \
   -n navidrome --create-namespace \
   -f apps/charts/navidrome-values/values.yaml \
   --timeout 5m
+
+# Apply the Authentik forward-auth wiring (Middleware + ExternalName +
+# /outpost.goauthentik.io/ Ingress). Required for the Authentik login flow.
+kubectl apply -f apps/charts/navidrome-values/authentik.yaml
 ```
 
 ## First login
@@ -68,9 +72,41 @@ Navidrome speaks the Subsonic API on the **same port** as the web UI (4533). Poi
 
 Most modern clients support OpenSubsonic extensions (lyrics, ratings, podcasts) which Navidrome implements.
 
-## Authentik OIDC integration (deferred)
+## Authentik forward-auth integration
 
-Navidrome has **no native OIDC support**. Subsonic clients use HTTP-basic / token auth, and the web UI uses Navidrome's own session cookies. To put Authentik in front of the web UI, you'd need an Authentik Outpost running in proxy/forward-auth mode in front of the Ingress — the Subsonic API would need to be either exempted from the proxy or fronted with a separate route. Non-trivial; deferred.
+Navidrome has no native OIDC, so Authentik gates the **web UI** via Traefik forward-auth (Authentik's Embedded Outpost), and Navidrome's `ReverseProxyUserHeader` trusts the `X-authentik-username` header the outpost injects. The **Subsonic API** (`/rest/*`, `/share/*`) bypasses Authentik so DSub / play:Sub / Symfonium etc. keep working with Navidrome's native HTTP-basic auth.
+
+### Pieces
+
+| Object | Where | Purpose |
+|---|---|---|
+| Authentik Proxy Provider + Application | created by `apps/scripts/authentik-oidc-bootstrap.py` | `mode: forward_single`, `external_host: https://music.chifor.dev`, attached to Embedded Outpost |
+| `Middleware/authentik-forwardauth` | `apps/charts/navidrome-values/authentik.yaml` (navidrome ns) | Traefik forwardAuth → `authentik-server.authentik.svc.cluster.local/outpost.goauthentik.io/auth/traefik` |
+| `Service/authentik-server-ref` | same file (navidrome ns) | ExternalName to authentik-server (lets the navidrome-namespace Ingress target a service in the authentik namespace) |
+| `Ingress/navidrome-outpost` | same file (navidrome ns) | Routes `music.chifor.dev/outpost.goauthentik.io/*` to authentik-server-ref so the outpost can set its session cookie on the protected host |
+| `Ingress/navidrome-main` | chart (`ingress.main`) | `/` with `traefik.ingress.kubernetes.io/router.middlewares: navidrome-authentik-forwardauth@kubernetescrd` |
+| `Ingress/navidrome-subsonic` | chart (`ingress.subsonic`) | `/rest`, `/share` — **NO** middleware, Subsonic clients use Navidrome's native auth |
+| `ND_REVERSEPROXYUSERHEADER`, `ND_REVERSEPROXYWHITELIST` | values.yaml `env:` | Navidrome trusts the username header on requests from cluster pod CIDR `10.42.0.0/16` (Traefik runs there) |
+
+### Login flow
+
+1. User visits `https://music.chifor.dev/` → Traefik forward-auth middleware asks the outpost
+2. No session yet → outpost responds 302 to `https://music.chifor.dev/outpost.goauthentik.io/start` → which 302s to `https://authentik.chifor.dev/application/o/authorize/?client_id=…`
+3. User authenticates at Authentik
+4. Authentik 302s back to `https://music.chifor.dev/outpost.goauthentik.io/callback` (handled by `Ingress/navidrome-outpost` → outpost service)
+5. Outpost sets `authentik_proxy_*` session cookie on `Domain=chifor.dev`, 302s to `/`
+6. Forward-auth re-runs, this time the outpost returns 200 + `X-authentik-username: <user>`
+7. Traefik proxies the request to Navidrome with the header
+8. Navidrome sees the trusted header, **first user logged in this way becomes admin**, subsequent users get auto-created as regular users
+
+### Adding more proxy-fronted apps
+
+Append to `APPS` in `apps/scripts/authentik-oidc-bootstrap.py` with `provider_type: proxy`, then re-run the script — the new provider will be attached to the Embedded Outpost automatically. The Traefik wiring (Middleware + outpost Ingress + ExternalName) needs to be replicated per app namespace; copy `authentik.yaml` into the new namespace and tweak the host.
+
+### Known limitations
+
+- **No group-based authorization yet** — every authenticated Authentik user can sign into Navidrome. Use Authentik's *Application → Policy bindings* if you need to restrict access (e.g. `group=music`).
+- **Subsonic clients still need Navidrome credentials** — Authentik gates the web only. The mobile workflow is: log in via web once (so your account exists), set a Navidrome password under Settings, point your Subsonic client at the same URL with that password.
 
 ## Quirks
 

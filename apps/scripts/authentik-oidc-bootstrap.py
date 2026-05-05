@@ -119,6 +119,68 @@ def get_signing_key() -> str:
     sys.exit("ERROR: no signing key in Authentik")
 
 
+def upsert_proxy_app(slug: str, name: str, external_host: str,
+                     cookie_domain: str, auth_flow: str,
+                     invalidation_flow: str) -> dict:
+    """Create (or fetch+reconcile) a Forward Auth (single application) provider
+    + linked Application. Returns dict with provider_pk + name + slug.
+
+    Used for apps without native OIDC (Navidrome, etc.) — Authentik's Embedded
+    Outpost gates the app via Traefik forward-auth, then injects identity
+    headers (X-authentik-username, …) the app trusts via its reverse-proxy
+    auth setting.
+    """
+
+    desired = {
+        "name": f"{name} Proxy",
+        "authorization_flow": auth_flow,
+        "invalidation_flow": invalidation_flow,
+        "mode": "forward_single",
+        "external_host": external_host,
+        "cookie_domain": cookie_domain,
+    }
+
+    provider = find_or_make("/providers/proxy/", "name", f"{name} Proxy", desired)
+
+    drift = {k: desired[k] for k in ("mode", "external_host", "cookie_domain")
+             if provider.get(k) != desired[k]}
+    if drift:
+        print(f"  reconciling proxy provider {provider['pk']}: {list(drift)}")
+        provider = api(f"/providers/proxy/{provider['pk']}/", "PATCH", drift)
+
+    get_or_make_application(slug, {
+        "name": name,
+        "slug": slug,
+        "provider": provider["pk"],
+        "policy_engine_mode": "any",
+    })
+
+    return {"provider_pk": provider["pk"], "name": name, "slug": slug}
+
+
+def attach_providers_to_embedded_outpost(provider_pks: list[int]) -> None:
+    """Add provider PKs to the Embedded Outpost (idempotent — only PATCHes
+    when the desired set differs from current).
+
+    All Proxy providers must be attached to an outpost or the forward-auth
+    handshake at /outpost.goauthentik.io/auth/* returns 404.
+    """
+    outposts = api("/outposts/instances/").get("results", [])
+    embedded = next((o for o in outposts if "Embedded" in o.get("name", "")), None)
+    if embedded is None:
+        sys.exit("ERROR: Embedded Outpost not found — re-check Authentik install")
+
+    current = set(embedded.get("providers") or [])
+    desired = current | set(provider_pks)
+    if desired != current:
+        added = sorted(desired - current)
+        api(f"/outposts/instances/{embedded['pk']}/", "PATCH",
+            {"providers": list(desired)})
+        print(f"  embedded outpost: added providers {added}")
+    else:
+        print(f"  embedded outpost: providers up to date ({sorted(current)})")
+
+
 def upsert_oauth_app(slug: str, name: str, redirect_uris: list[str],
                      auth_flow: str, invalidation_flow: str,
                      scopes: list[str], signing_key: str) -> dict:
@@ -238,6 +300,17 @@ APPS = [
         "redirect_uris": ["https://nodered.chifor.dev/auth/strategy/callback"],
         "namespace": "node-red",
     },
+    # Apps without native OIDC use Authentik's Embedded Outpost via Traefik
+    # forward-auth. No client_id/client_secret to store; the app trusts the
+    # X-authentik-username header injected by the outpost.
+    {
+        "slug": "navidrome",
+        "name": "Navidrome",
+        "provider_type": "proxy",
+        "namespace": "navidrome",
+        "external_host": "https://music.chifor.dev",
+        "cookie_domain": "chifor.dev",
+    },
 ]
 
 
@@ -277,31 +350,57 @@ def main():
         sys.exit("ERROR: no openid/email/profile scope mappings — check Authentik install")
 
     summary = []
+    proxy_provider_pks: list = []
     for app in APPS:
         print(f"\n==> {app['name']} ({app['slug']})")
-        result = upsert_oauth_app(
-            slug=app["slug"],
-            name=app["name"],
-            redirect_uris=app["redirect_uris"],
-            auth_flow=auth_flow,
-            invalidation_flow=invalidation_flow,
-            scopes=scopes,
-            signing_key=signing_key,
-        )
-        write_k8s_secret(
-            namespace=app["namespace"],
-            name="authentik-oidc",
-            data={
-                "client-id": result["client_id"],
-                "client-secret": result["client_secret"],
-                "issuer-url": result["issuer"],
-            },
-            labels=app.get("secret_labels"),
-        )
-        print(f"  client_id    = {result['client_id']}")
-        print(f"  client_secret= {result['client_secret']}")
-        print(f"  issuer       = {result['issuer']}")
+        ptype = app.get("provider_type", "oauth2")
+
+        if ptype == "oauth2":
+            result = upsert_oauth_app(
+                slug=app["slug"],
+                name=app["name"],
+                redirect_uris=app["redirect_uris"],
+                auth_flow=auth_flow,
+                invalidation_flow=invalidation_flow,
+                scopes=scopes,
+                signing_key=signing_key,
+            )
+            write_k8s_secret(
+                namespace=app["namespace"],
+                name="authentik-oidc",
+                data={
+                    "client-id": result["client_id"],
+                    "client-secret": result["client_secret"],
+                    "issuer-url": result["issuer"],
+                },
+                labels=app.get("secret_labels"),
+            )
+            print(f"  client_id    = {result['client_id']}")
+            print(f"  client_secret= {result['client_secret']}")
+            print(f"  issuer       = {result['issuer']}")
+
+        elif ptype == "proxy":
+            result = upsert_proxy_app(
+                slug=app["slug"],
+                name=app["name"],
+                external_host=app["external_host"],
+                cookie_domain=app["cookie_domain"],
+                auth_flow=auth_flow,
+                invalidation_flow=invalidation_flow,
+            )
+            proxy_provider_pks.append(result["provider_pk"])
+            print(f"  provider_pk  = {result['provider_pk']}")
+            print(f"  external_host= {app['external_host']}")
+            print(f"  (no Secret written — forward-auth needs no client creds)")
+
+        else:
+            sys.exit(f"ERROR: unknown provider_type {ptype!r} for {app['slug']}")
+
         summary.append(result)
+
+    if proxy_provider_pks:
+        print(f"\n==> Embedded Outpost provider attachments")
+        attach_providers_to_embedded_outpost(proxy_provider_pks)
 
     # Print summary block
     print("\n" + "=" * 70)

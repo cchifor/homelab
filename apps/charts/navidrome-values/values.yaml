@@ -28,6 +28,12 @@ controllers:
           # validation only via the modern web client / app).
           ND_ENABLELEGACYSUBSONICAUTH: "true"
           ND_BASEURL: ""        # served at root
+
+          # Trust X-authentik-username injected by Traefik forward-auth on
+          # requests originating from the cluster (i.e. Traefik pods).
+          # First user to log in via the proxy header becomes admin.
+          ND_REVERSEPROXYUSERHEADER: X-authentik-username
+          ND_REVERSEPROXYWHITELIST: "10.42.0.0/16"
         resources:
           requests: { cpu: 50m, memory: 128Mi }
           limits:   { memory: 512Mi }
@@ -50,8 +56,41 @@ service:
         port: 4533
 
 # === Ingress (LAN-only via Traefik + LE cert) ===
+#
+# Three Ingress objects share the music.chifor.dev hostname so that Traefik
+# can route by path priority:
+#   /outpost.goauthentik.io/* → authentik-server (handled by ingress-outpost
+#                                                  + ExternalName Service in
+#                                                  apps/charts/navidrome-values/authentik.yaml)
+#   /rest/*                   → navidrome (subsonic Ingress, NO auth middleware)
+#   /*                        → navidrome (main Ingress, with auth middleware)
 ingress:
   main:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Authentik forward-auth via Traefik Middleware in this namespace
+      # (defined in authentik.yaml). Annotation reference format is
+      # <namespace>-<middleware-name>@kubernetescrd.
+      traefik.ingress.kubernetes.io/router.middlewares: navidrome-authentik-forwardauth@kubernetescrd
+    hosts:
+      - host: music.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+    tls:
+      - hosts: [music.chifor.dev]
+        secretName: navidrome-tls
+
+  # Subsonic API bypass — Subsonic clients use HTTP-basic / token auth and
+  # cannot do the OAuth dance. /rest/* and /share/* go straight to Navidrome
+  # without the Authentik middleware, so DSub / play:Sub / Symfonium etc.
+  # keep working.
+  subsonic:
     enabled: true
     className: traefik
     annotations:
@@ -59,7 +98,12 @@ ingress:
     hosts:
       - host: music.chifor.dev
         paths:
-          - path: /
+          - path: /rest
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+          - path: /share
             pathType: Prefix
             service:
               identifier: main
