@@ -102,6 +102,10 @@ config:
             href: https://nodered.chifor.dev
             description: Flow programming (LAN)
             icon: node-red.png
+        - Navidrome:
+            href: https://music.chifor.dev
+            description: Music streamer (LAN)
+            icon: navidrome.png
 
     - Platform:
         - ArgoCD:

@@ -1,0 +1,93 @@
+# navidrome values for the homelab.
+#
+# Chart: bjw-s/app-template 4.6.2
+# Self-hosted Subsonic-compatible music server. LAN-only with LE cert.
+# Hostname: music.chifor.dev
+
+# === Controller (Deployment) ===
+controllers:
+  main:
+    type: deployment
+    replicas: 1
+    strategy: Recreate          # RWO PVCs — only one writer at a time
+    containers:
+      main:
+        image:
+          repository: ghcr.io/navidrome/navidrome
+          tag: "0.57.0"
+        env:
+          ND_LOGLEVEL: info
+          ND_DATAFOLDER: /data
+          ND_MUSICFOLDER: /music
+          ND_PORT: "4533"
+          # Hide the default invitation to register an account on first run
+          # by enabling self-management — set ND_ENABLEUSEREDITING per taste.
+          ND_ENABLEUSEREDITING: "true"
+          # Subsonic API auth uses unsalted MD5 — fine for personal use, but
+          # disable if exposing the server publicly (use plaintext password
+          # validation only via the modern web client / app).
+          ND_ENABLELEGACYSUBSONICAUTH: "true"
+          ND_BASEURL: ""        # served at root
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits:   { memory: 512Mi }
+
+# Navidrome image runs as uid 1000 by default; fsGroup makes the kubelet
+# chgrp the PVCs to gid 1000 on mount so first-launch DB init can write.
+defaultPodOptions:
+  securityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+
+# === Service ===
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 4533
+
+# === Ingress (LAN-only via Traefik + LE cert) ===
+ingress:
+  main:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: music.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+    tls:
+      - hosts: [music.chifor.dev]
+        secretName: navidrome-tls
+
+# === Storage ===
+# data: navidrome's SQLite DB, scrobble cache, transcoded files
+# music: the music library — copy your collection in via `kubectl cp`
+#        or expose a NAS mount later if the library is large.
+persistence:
+  data:
+    enabled: true
+    storageClass: longhorn
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    advancedMounts:
+      main:
+        main:
+          - path: /data
+  music:
+    enabled: true
+    storageClass: longhorn
+    size: 50Gi
+    accessMode: ReadWriteOnce
+    advancedMounts:
+      main:
+        main:
+          - path: /music
