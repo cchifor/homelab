@@ -119,10 +119,10 @@ def main():
                 url=m["url"],
                 parent=group_ids[m["group"]],
                 interval=300,
-                retry_interval=60,
-                max_retries=2,
+                retryInterval=60,
+                maxretries=2,
                 accepted_statuscodes=m.get("accepted", ["200-299", "302"]),
-                ignore_tls=False,
+                ignoreTls=False,
             )
             print(f"  + HTTP   {m['group']:14s} / {m['name']:18s} -> {m['url']}")
             added += 1
@@ -138,8 +138,8 @@ def main():
                 hostname=m["host"],
                 parent=group_ids[m["group"]],
                 interval=300,
-                retry_interval=60,
-                max_retries=2,
+                retryInterval=60,
+                maxretries=2,
             )
             print(f"  + PING   {m['group']:14s} / {m['name']:18s} -> {m['host']}")
             added += 1
@@ -156,8 +156,8 @@ def main():
                 port=m["port"],
                 parent=group_ids[m["group"]],
                 interval=300,
-                retry_interval=60,
-                max_retries=2,
+                retryInterval=60,
+                maxretries=2,
             )
             print(f"  + PORT   {m['group']:14s} / {m['name']:18s} -> {m['host']}:{m['port']}")
             added += 1
