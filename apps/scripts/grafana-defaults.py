@@ -9,12 +9,14 @@ gets wiped if the underlying PV is destroyed. Run this any time you
 reinstall Grafana from scratch (or after the very first install) to put
 the right defaults back.
 
-Currently sets:
-  - org-level home dashboard  → uid: homelab_overview
-                                 (the apps/manifests/grafana-dashboards/
-                                  homelab-overview.json landing page)
+Currently sets these /api/org/preferences keys (each overridable via env):
+  - homeDashboardUID  (default "homelab_overview")
+  - theme             (default "dark")
+  - timezone          (default "browser")
+  - weekStart         (default "monday")
 
-Idempotent -- re-runs are no-ops if the desired state is already in place.
+Idempotent: re-runs PATCH only the keys that drift; manual UI tweaks to
+keys NOT listed above (e.g. queryHistory.homeTab, language) are preserved.
 
 Usage:
     cd ~/work/home/homelab
@@ -27,9 +29,13 @@ Usage:
     python apps/scripts/grafana-defaults.py
 
 Environment:
-    GRAFANA_URL              (default: https://grafana.chifor.dev)
-    GRAFANA_ADMIN_USER       (default: admin)
-    GRAFANA_ADMIN_PASSWORD   (REQUIRED -- sourced from .secrets.env)
+    GRAFANA_URL                  (default: https://grafana.chifor.dev)
+    GRAFANA_ADMIN_USER           (default: admin)
+    GRAFANA_ADMIN_PASSWORD       (REQUIRED -- sourced from .secrets.env)
+    GRAFANA_HOME_DASHBOARD_UID   (default: homelab_overview)
+    GRAFANA_THEME                (default: dark        | light | system)
+    GRAFANA_TIMEZONE             (default: browser     | utc   | <IANA tz>)
+    GRAFANA_WEEK_START           (default: monday      | sunday | saturday | "")
 
 If auth fails: kube-prometheus-stack only honours grafana.adminPassword
 at FIRST install, so the helm-values password can drift from what's
@@ -56,7 +62,12 @@ USER = os.getenv("GRAFANA_ADMIN_USER", "admin")
 PASSWORD = os.getenv("GRAFANA_ADMIN_PASSWORD")
 
 # === Desired state ===
-HOME_DASHBOARD_UID = "homelab_overview"
+# Each of these is overridable via env var (per the docstring) so a future
+# operator can flip the default without editing the script.
+HOME_DASHBOARD_UID = os.getenv("GRAFANA_HOME_DASHBOARD_UID", "homelab_overview")
+THEME              = os.getenv("GRAFANA_THEME",      "dark")    # dark | light | system
+TIMEZONE           = os.getenv("GRAFANA_TIMEZONE",   "browser") # browser | utc | <IANA>
+WEEK_START         = os.getenv("GRAFANA_WEEK_START", "monday")  # monday | sunday | saturday | "" (default)
 
 
 def _basic_auth() -> str:
@@ -91,32 +102,51 @@ def api(path: str, method: str = "GET", body: dict | None = None) -> dict:
         sys.exit(f"ERROR: cannot reach {url}: {e.reason}")
 
 
-def ensure_home_dashboard():
-    """Org default home dashboard → HOME_DASHBOARD_UID (if not already)."""
-    print(f"==> Org default home dashboard")
+def ensure_org_preferences():
+    """Set org-level Grafana preferences -- home dashboard, theme, timezone,
+    week start. Idempotent: PATCHes only the keys whose current value differs
+    from the desired value, so manual UI tweaks to OTHER keys are preserved.
+    """
+    print("==> Org preferences")
 
     # Confirm the target dashboard actually exists; otherwise the preference
     # silently fails and users land on the generic "Welcome to Grafana".
-    try:
-        api(f"/dashboards/uid/{HOME_DASHBOARD_UID}")
-    except SystemExit:
-        sys.exit(
-            f"ERROR: dashboard uid {HOME_DASHBOARD_UID!r} not found in Grafana.\n"
-            f"Apply the dashboard ConfigMaps first:\n"
-            f"  kubectl apply -k apps/manifests/grafana-dashboards/"
-        )
+    if HOME_DASHBOARD_UID:
+        try:
+            api(f"/dashboards/uid/{HOME_DASHBOARD_UID}")
+        except SystemExit:
+            sys.exit(
+                f"ERROR: dashboard uid {HOME_DASHBOARD_UID!r} not found in Grafana.\n"
+                f"Apply the dashboard ConfigMaps first:\n"
+                f"  kubectl apply -k apps/manifests/grafana-dashboards/"
+            )
+
+    desired = {
+        "homeDashboardUID": HOME_DASHBOARD_UID,
+        "theme":            THEME,
+        "timezone":         TIMEZONE,
+        "weekStart":        WEEK_START,
+    }
+    # Drop empty-string values (treat as "no preference"; don't PATCH them).
+    desired = {k: v for k, v in desired.items() if v != ""}
 
     current = api("/org/preferences")
-    if current.get("homeDashboardUID") == HOME_DASHBOARD_UID:
-        print(f"  already set to {HOME_DASHBOARD_UID!r} -- skip")
+    drift = {k: v for k, v in desired.items() if current.get(k) != v}
+
+    if not drift:
+        print(f"  all desired keys match current -- skip")
+        for k, v in desired.items():
+            print(f"    {k:18s} = {v!r}")
         return
 
-    # PATCH lets us update only the keys we care about; PUT replaces the
-    # whole document and would clobber any theme/timezone the operator set
-    # via the UI.
-    api("/org/preferences", method="PATCH",
-        body={"homeDashboardUID": HOME_DASHBOARD_UID})
-    print(f"  set homeDashboardUID = {HOME_DASHBOARD_UID!r}")
+    api("/org/preferences", method="PATCH", body=drift)
+    for k, v in drift.items():
+        old = current.get(k, "<unset>")
+        print(f"  set {k:18s} {old!r:>25s}  ->  {v!r}")
+    # Print the unchanged ones too so the operator sees the full effective state.
+    for k, v in desired.items():
+        if k not in drift:
+            print(f"  ok  {k:18s} = {v!r}")
 
 
 def main():
@@ -128,7 +158,7 @@ def main():
     health = api("/health")
     print(f"  version={health.get('version')}  database={health.get('database')}")
 
-    ensure_home_dashboard()
+    ensure_org_preferences()
 
     print("\nDONE.")
 
