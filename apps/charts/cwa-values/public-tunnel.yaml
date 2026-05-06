@@ -1,0 +1,33 @@
+# Public access for Calibre-Web via Cloudflare Tunnel.
+#
+# Same pattern as apps/charts/navidrome-values/public-tunnel.yaml --
+# route the tunnel at the Traefik service so the auth Middleware
+# defined in cwa namespace can run. Direct CF -> CWA service would
+# bypass Traefik middlewares entirely.
+#
+# Routing inside Traefik (by path priority):
+#   /outpost.goauthentik.io/*      : authentik-server outpost  (cwa-outpost ingress)
+#   /opds*, /download/*, /api/v1/* : CWA without auth          (cwa-opds ingress)
+#   /*                             : CWA with Authentik fwd-auth (cwa-main ingress, traefik class)
+#
+# Apply: kubectl apply -f apps/charts/cwa-values/public-tunnel.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cwa-public-tunnel
+  namespace: kube-system
+  annotations:
+    chifor.dev/purpose: "public-cf-tunnel-for-cwa-via-traefik"
+spec:
+  ingressClassName: cloudflare-tunnel
+  rules:
+    - host: books.chifor.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik
+                port:
+                  number: 80

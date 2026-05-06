@@ -1,0 +1,59 @@
+# Forward-auth wiring for CWA via Authentik's Embedded Outpost.
+# Mirror of apps/charts/navidrome-values/authentik.yaml -- same three
+# objects + same routing logic. See that file for the architectural notes.
+#
+# The chart's `ingress.main` (with the middleware annotation) catches /*
+# (web UI). The chart's `ingress.opds` catches /opds*, /opds/v2*, and
+# /download/* (NO middleware) so OPDS clients (KyBook, Marvin, Aldiko)
+# can keep using HTTP-basic against CWA's local user table -- they can't
+# do an OAuth dance and would otherwise be locked out.
+#
+# Apply: kubectl apply -f apps/charts/cwa-values/authentik.yaml
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authentik-forwardauth
+  namespace: cwa
+spec:
+  forwardAuth:
+    address: http://authentik-server.authentik.svc.cluster.local/outpost.goauthentik.io/auth/traefik
+    trustForwardHeader: true
+    authResponseHeaders:
+      - X-authentik-username
+      - X-authentik-groups
+      - X-authentik-email
+      - X-authentik-name
+      - X-authentik-uid
+      - X-authentik-jwt
+      - X-authentik-meta-jwks
+      - X-authentik-meta-outpost
+      - X-authentik-meta-provider
+      - X-authentik-meta-app
+      - X-authentik-meta-version
+
+---
+# Outpost Ingress placed in the authentik namespace (where authentik-server
+# is local). Avoids cross-namespace ExternalName, which Traefik k3s default
+# rejects with "externalName services not allowed". The host is the CWA
+# frontend (books.chifor.dev), but the backend service is authentik-server,
+# resolvable in this namespace.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cwa-outpost
+  namespace: authentik
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: books.chifor.dev
+      http:
+        paths:
+          - path: /outpost.goauthentik.io
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik-server
+                port:
+                  number: 80

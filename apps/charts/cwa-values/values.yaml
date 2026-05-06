@@ -53,11 +53,22 @@ service:
       http:
         port: 8083
 
+# Public access pattern (mirrors Navidrome):
+#   - public-tunnel.yaml: cloudflare-tunnel Ingress in kube-system at /
+#     points the tunnel at Traefik svc so middlewares can run
+#   - this chart's `main` Ingress: traefik class with Authentik forward-auth
+#     middleware -- catches /* (web UI), gated by SSO
+#   - this chart's `opds` Ingress: traefik class WITHOUT middleware --
+#     catches /opds*, /download/*, /api/v1/* so OPDS clients (KyBook,
+#     Marvin, Aldiko) and CalibreSync keep working with HTTP-basic. They
+#     can't follow a forward-auth redirect to Authentik.
+#   - authentik.yaml: Middleware definition + ExternalName + outpost Ingress
 ingress:
   main:
     enabled: true
-    className: cloudflare-tunnel
-    annotations: {}
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.middlewares: cwa-authentik-forwardauth@kubernetescrd
     hosts:
       - host: books.chifor.dev
         paths:
@@ -66,7 +77,33 @@ ingress:
             service:
               identifier: main
               port: http
-    tls: []   # Cloudflare terminates TLS at the edge
+    tls: []   # CF Tunnel terminates TLS; in-cluster hop is plain HTTP
+
+  # OPDS / download / API path bypass -- no middleware, HTTP-basic against
+  # CWA's local user table is the auth.
+  opds:
+    enabled: true
+    className: traefik
+    annotations: {}
+    hosts:
+      - host: books.chifor.dev
+        paths:
+          - path: /opds
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+          - path: /download
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+          - path: /api/v1
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+    tls: []
 
 persistence:
   config:

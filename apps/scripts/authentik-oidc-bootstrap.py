@@ -53,17 +53,19 @@ def api(path: str, method: str = "GET", json_body: Optional[dict] = None) -> dic
 
 
 def find_or_make(endpoint: str, search_field: str, search_value: str, create_payload: dict) -> dict:
-    """GET endpoint?search_field=value ==> return first hit, else POST create_payload.
+    """GET endpoint?search_field=value, filter results client-side by exact
+    search_field match, return first hit; else POST create_payload.
 
-    Caveat: only works for fields that Authentik actually treats as filters
-    (e.g. /providers/oauth2/ honours `?name=`). The /core/applications/
-    endpoint silently ignores `?slug=` and returns the full unfiltered list,
-    which would make this helper falsely match the first existing app —
-    use get_or_make_application() instead for that endpoint.
+    Several Authentik list endpoints silently IGNORE filter query params and
+    return the unfiltered list (e.g. /providers/proxy/?name=X returns ALL
+    proxy providers; same for /core/applications/?slug=X). Trusting the API
+    side-filter would falsely match the first existing record. The
+    client-side post-filter here is the defensive default.
     """
-    existing = api(f"{endpoint}?{search_field}={search_value}").get("results", [])
-    if existing:
-        return existing[0]
+    results = api(f"{endpoint}?{search_field}={search_value}").get("results", [])
+    matching = [r for r in results if r.get(search_field) == search_value]
+    if matching:
+        return matching[0]
     return api(endpoint, "POST", create_payload)
 
 
@@ -325,6 +327,14 @@ APPS = [
         "provider_type": "proxy",
         "namespace": "navidrome",
         "external_host": "https://music.chifor.dev",
+        "cookie_domain": "chifor.dev",
+    },
+    {
+        "slug": "calibre-web",
+        "name": "Calibre-Web",
+        "provider_type": "proxy",
+        "namespace": "cwa",
+        "external_host": "https://books.chifor.dev",
         "cookie_domain": "chifor.dev",
     },
 ]

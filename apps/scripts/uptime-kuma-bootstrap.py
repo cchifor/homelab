@@ -56,6 +56,12 @@ HTTP_MONITORS = [
     {"group": "Apps",     "name": "Immich",        "url": "https://immich.chifor.dev/api/server/ping"},
     {"group": "Apps",     "name": "OpenCloud",     "url": "https://cloud.chifor.dev/status.php"},
     {"group": "Apps",     "name": "Paperless-ngx", "url": "https://paperless.chifor.dev/accounts/login/"},
+    # CWA: /opds is the bypass path (no Authentik forward-auth) -- responds
+    # 401 to anonymous probes, which Uptime Kuma counts as "up" if we set
+    # accepted_statuscodes to include 401 below.
+    {"group": "Apps",     "name": "Calibre-Web",   "url": "https://books.chifor.dev/opds",
+     "accepted": ["200-299", "401"]},
+    {"group": "Apps",     "name": "Audiobookshelf","url": "https://audiobooks.chifor.dev/healthcheck"},
 
     # --- Apps (LAN-only via Traefik + LE) ---
     {"group": "LAN apps", "name": "Homepage",      "url": "https://home.chifor.dev/"},
