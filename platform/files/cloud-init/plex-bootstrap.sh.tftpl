@@ -73,7 +73,58 @@ ct_run 'systemctl daemon-reload'
 ct_run 'systemctl enable plexmediaserver'
 ct_run 'systemctl restart plexmediaserver'
 
-# 6. Wait briefly for Plex to come up and check that port 32400 is listening
+# 6. CIFS / SMB mounts (e.g., NAS-shared media folders)
+#
+# For each entry in var.smb_mounts:
+#   - install cifs-utils (no-op if already installed)
+#   - create mount point owned by plex:plex (uid 999, gid 996)
+#   - touch a creds file with REPLACE_ME placeholder if missing -- the
+#     operator fills real credentials manually post-apply (creds stay out
+#     of IaC; the placeholder is just a typed-format scaffolding)
+#   - append an idempotent fstab line
+#   - run `mount -a` only if creds aren't placeholders, so a fresh apply
+#     doesn't fail the whole bootstrap when the operator hasn't filled
+#     them in yet
+%{ if length(smb_mounts) > 0 }
+echo "==> CIFS/SMB mounts (${length(smb_mounts)} configured)"
+ct_run 'apt-get install -y -qq cifs-utils' >/dev/null
+%{ for m in smb_mounts ~}
+
+echo "  --> //${m.server}${m.share} -> ${m.mount_point} (vers=${m.smb_vers}, ${m.read_only ? "ro" : "rw"})"
+ct_run 'mkdir -p ${m.mount_point}'
+ct_run 'chown plex:plex ${m.mount_point}'
+
+# Placeholder creds file -- written ONLY if missing or empty so re-applies
+# don't clobber real credentials the operator typed in.
+ct_run 'test -s ${m.creds_file} || cat > ${m.creds_file} <<CREDS
+username=REPLACE_ME
+password=REPLACE_ME
+domain=WORKGROUP
+CREDS'
+ct_run 'chmod 600 ${m.creds_file}'
+
+# Idempotent fstab line. Trailing newline + grep on the mount point ensures
+# we don't append duplicates on re-apply.
+FSTAB_LINE='//${m.server}${m.share} ${m.mount_point} cifs credentials=${m.creds_file},uid=999,gid=996,iocharset=utf8,vers=${m.smb_vers},_netdev,nofail,${m.read_only ? "ro" : "rw"},file_mode=0644,dir_mode=0755 0 0'
+ct_run "grep -qF ' ${m.mount_point} ' /etc/fstab || echo '$FSTAB_LINE' >> /etc/fstab"
+
+# Try to mount NOW only if creds aren't placeholders. Bootstrap remains green
+# if creds haven't been filled yet -- the fstab line is in place, so mount
+# fires automatically on next reboot once creds are populated.
+if pct exec "$CTID" -- grep -q REPLACE_ME ${m.creds_file}; then
+  echo "  (creds still placeholder -- fill in then mount manually:"
+  echo "     ssh root@<proxmox-host>"
+  echo "     pct exec $CTID -- printf 'username=X\\npassword=Y\\ndomain=WORKGROUP\\n' > ${m.creds_file}"
+  echo "     pct exec $CTID -- mount ${m.mount_point}"
+  echo "  )"
+else
+  ct_run 'mount ${m.mount_point} 2>&1 || true'
+  pct exec "$CTID" -- ls ${m.mount_point} 2>/dev/null | head -3 || true
+fi
+%{ endfor ~}
+%{ endif }
+
+# 7. Wait briefly for Plex to come up and check that port 32400 is listening
 for i in $(seq 1 30); do
   if pct exec "$CTID" -- ss -tlnp 2>/dev/null | grep -q ':32400 '; then
     echo "==> Plex listening on :32400"

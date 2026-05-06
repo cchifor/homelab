@@ -95,6 +95,8 @@ module "plex_lxc" {
 
   plex_version = var.plex_version
 
+  smb_mounts = var.plex_smb_mounts
+
   ssh_public_key = var.cp_ssh_public_key
 
   proxmox_host_address              = var.proxmox_host_address

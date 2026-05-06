@@ -61,6 +61,38 @@ ssh root@192.168.0.185 'pct exec 102 -- rsync -av rsync.sshfs.example/movies/ /s
 
 After files land, "Scan Library Files" in the Plex UI picks them up.
 
+## Mounting an external SMB / NAS share (e.g., a QNAP `Public/Movies`)
+
+The module's `smb_mounts` variable (list of `{server, share, mount_point, smb_vers, creds_file, read_only}` objects) declares CIFS mounts that the bootstrap installs `cifs-utils` for, lays an `/etc/fstab` line down, and creates a placeholder credentials file at the configured path.
+
+Credentials are deliberately NOT in IaC. After `tofu apply`, populate them once:
+
+```bash
+ssh root@<proxmox-host>
+pct enter 102
+
+# Replace YOUR_USER / YOUR_PASS with your real values, then paste:
+read -p "user: " QU
+read -s -p "pass: " QP; echo
+printf 'username=%s\npassword=%s\ndomain=WORKGROUP\n' "$QU" "$QP" > /root/.smb-vbox.creds
+chmod 600 /root/.smb-vbox.creds
+
+mount /mnt/vbox-movies   # uses fstab, succeeds once creds are valid
+ls /mnt/vbox-movies | head
+exit; exit
+```
+
+After mounting, **add the library in Plex**: web UI → ⚙ Settings → Manage → Libraries → Add Library → Movies → browse to `/mnt/vbox-movies` → Save.
+
+### Why `vers=2.1` on the example QNAP mount
+
+Some QNAP firmwares advertise SMB3 in their share-list response but reject Linux kernel cifs's SMB3 dialect at mount time with `Operation not supported (95)` (kernel logs `Dialect not supported by server`). They negotiate cleanly with Windows because Windows auto-falls-back; Linux cifs needs the explicit pin. `vers=2.1` is a safe default; bump per-mount if your server speaks 3.0+.
+
+### Survival across `tofu destroy`
+
+`fstab` entry + mount point + cifs-utils install: re-laid by the bootstrap on every apply (idempotent).
+Credentials file: `tofu destroy` wipes the LXC rootfs; the creds file goes with it. Re-run the `printf` block above after re-applying.
+
 ## Verifying QuickSync transcoding
 
 Plex Pass (paid Plex feature, $5/mo or $120 lifetime) is required for **hardware-accelerated transcoding**. Without Plex Pass, the iGPU bind is harmless but unused — Plex falls back to CPU.

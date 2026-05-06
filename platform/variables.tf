@@ -565,6 +565,19 @@ variable "plex_version" {
   description = "Plex Media Server version. Latest at https://www.plex.tv/media-server-downloads/?cat=computer&plat=linux"
 }
 
+variable "plex_smb_mounts" {
+  type = list(object({
+    server      = string
+    share       = string
+    mount_point = string
+    smb_vers    = optional(string, "2.1")
+    creds_file  = optional(string, "/root/.smb-creds")
+    read_only   = optional(bool, true)
+  }))
+  default     = []
+  description = "SMB/CIFS shares to mount inside the Plex LXC. Each entry produces an /etc/fstab line + a placeholder credentials file at .creds_file (chmod 600). Operator must populate real creds post-apply via `pct exec <ctid> -- printf 'username=...\\npassword=...\\n' > <creds_file>`. Defaults to vers=2.1 because some QNAP firmwares choke on Linux cifs SMB3 negotiation."
+}
+
 # =============================================================================
 # Let's Encrypt (DNS-01 via Cloudflare)
 #

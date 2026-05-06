@@ -116,6 +116,31 @@ variable "plex_version" {
   description = "Plex Media Server version. Latest at https://www.plex.tv/media-server-downloads/?cat=computer&plat=linux"
 }
 
+# === SMB / CIFS mounts ====================================================
+# Codify external NAS mounts (e.g. //vbox/Public/Movies) into the LXC's
+# fstab so the bootstrap survives a `tofu destroy + apply` cycle.
+#
+# Credentials are NOT in IaC -- the bootstrap creates a placeholder file at
+# each mount's creds_file path; the operator fills in real values once via
+# `printf 'username=X\npassword=Y\ndomain=WORKGROUP\n' > <creds_file>` after
+# the LXC is up.
+#
+# Defaults to vers=2.1 because some QNAP firmwares advertise SMB3 but reject
+# Linux cifs's SMB3 dialect with "Operation not supported"; 2.1 negotiates
+# cleanly. Override per-mount if your server speaks 3.0+.
+variable "smb_mounts" {
+  type = list(object({
+    server      = string
+    share       = string
+    mount_point = string
+    smb_vers    = optional(string, "2.1")
+    creds_file  = optional(string, "/root/.smb-creds")
+    read_only   = optional(bool, true)
+  }))
+  default     = []
+  description = "List of SMB shares to mount inside the LXC. Each entry produces a /etc/fstab line + (placeholder) creds file. The operator fills the creds in post-apply; mount auto-fires when they do."
+}
+
 variable "ssh_public_key" {
   type = string
 }

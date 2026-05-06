@@ -116,6 +116,7 @@ resource "null_resource" "plex_bootstrap" {
     ctid         = proxmox_lxc.this.vmid
     plex_version = var.plex_version
     bind_ct_path = var.bind_ct_path
+    smb_mounts   = jsonencode(var.smb_mounts)
   }
 
   connection {
@@ -130,6 +131,7 @@ resource "null_resource" "plex_bootstrap" {
       ctid          = proxmox_lxc.this.vmid
       plex_version  = var.plex_version
       plex_data_dir = var.bind_ct_path
+      smb_mounts    = var.smb_mounts
     })
     destination = "/tmp/plex-bootstrap-${proxmox_lxc.this.vmid}.sh"
   }
