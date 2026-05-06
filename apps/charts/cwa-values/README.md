@@ -42,13 +42,30 @@ kubectl -n cwa logs deploy/cwa -f
 # look for: "Calibre setup completed successfully"
 ```
 
-## First login
+## First login + post-install password
 
 - URL: https://books.chifor.dev
 - Username: `admin`
-- Password: `admin123`
+- Default password: `admin123` (rotate immediately)
 
-**Change immediately** at the top-right user menu → Admin → Edit user → set a new password.
+**Don't use the admin user-list "Edit User" form to rotate** — until at least v4.0.6 it had a bug where saves silently no-op'd while reporting success. Use one of:
+
+```bash
+# Generate a random password + apply (printed at end):
+python apps/scripts/cwa-defaults.py
+
+# Or set a stable known password (idempotent re-runs):
+CWA_ADMIN_PASSWORD='your-pass' python apps/scripts/cwa-defaults.py
+```
+
+The script hashes via the pod's own Werkzeug (so format always matches the running CWA), parameterized-UPDATEs `app.db`, then verifies via the public web flow (CSRF-aware POST `/login` → authenticated `/me` probe).
+
+Three idempotent branches:
+1. supplied password already works on the web flow → no-op skip
+2. password drifted (or fresh install / migration corruption) → reset hash + verify
+3. admin user missing entirely → bail with a clear error (CWA's first-launch normally creates it; this only happens if `/config` is mid-init or wiped)
+
+The /me Personal-page form for changing your own password works correctly even on V3.1.4 — only the admin user-list edit form was broken.
 
 ## Adding books
 
