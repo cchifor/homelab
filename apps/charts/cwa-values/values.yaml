@@ -26,7 +26,7 @@ controllers:
       main:
         image:
           repository: crocodilestick/calibre-web-automated
-          tag: V3.1.4
+          tag: v4.0.6
         env:
           PUID: "33"        # match Nextcloud's www-data so file ownership lines up
           PGID: "33"
