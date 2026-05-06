@@ -36,36 +36,31 @@ helm upgrade --install audiobookshelf bjw-s/app-template \
 
 Browse https://audiobooks.chifor.dev — the first launch shows a **"Create Initial User"** screen. Pick a username + password; **that account becomes admin**. There's no chart-baked bootstrap secret.
 
-## Setting up Authentik OIDC (post-install)
-
-The Authentik provider + application + k8s Secret were created automatically by `apps/scripts/authentik-oidc-bootstrap.py`. ABS doesn't read OIDC config from env vars (the chart set them, but ABS persists settings in its SQLite on first init and ignores env afterwards). Configure via the admin UI:
+## Post-install defaults (one command — replaces the manual UI dance)
 
 ```bash
-# Pull the values you'll paste:
-kubectl -n audiobookshelf get secret authentik-oidc -o jsonpath='{.data.client-id}' | base64 -d ; echo
-kubectl -n audiobookshelf get secret authentik-oidc -o jsonpath='{.data.client-secret}' | base64 -d ; echo
-kubectl -n audiobookshelf get secret authentik-oidc -o jsonpath='{.data.issuer-url}' | base64 -d ; echo
+python apps/scripts/audiobookshelf-defaults.py
 ```
 
-In the ABS web UI:
-1. Top-right user menu → **Settings → Authentication**
-2. Toggle **OpenID Connect Authentication**
-3. Fill in:
+Idempotent script. Three branches:
 
-   | Field | Value |
-   |---|---|
-   | Issuer URL | `https://authentik.chifor.dev/application/o/audiobookshelf/` (from secret) |
-   | Authorization URL | `https://authentik.chifor.dev/application/o/authorize/` |
-   | Token URL | `https://authentik.chifor.dev/application/o/token/` |
-   | Userinfo URL | `https://authentik.chifor.dev/application/o/userinfo/` |
-   | JWKS URL | `https://authentik.chifor.dev/application/o/audiobookshelf/jwks/` |
-   | Client ID | (from secret) |
-   | Client Secret | (from secret) |
-   | Auto-launch | ✗ off (you still want a way to log in as the local admin) |
-   | Auto-register | ✓ on (auto-creates ABS users for new Authentik logins) |
-   | Match existing users by | `Username` |
+1. **Fresh install** (`status.isInit == false`): creates the initial admin user (default `admin` / random 24-char password printed at end), then PATCHes `/api/auth-settings` with all OIDC fields read from the `authentik-oidc` Secret in the namespace. After this, the login page exposes "Sign in with Authentik" and `/status` reports `authMethods: ["local", "openid"]`.
+2. **Already initialized + `AUDIOBOOKSHELF_ADMIN_PASSWORD` env supplied + correct**: logs in, reconciles OIDC fields if drifted.
+3. **Already initialized + password unknown/wrong**: bails with a clear error. Either set the env var, or wipe `/config` to start fresh.
 
-4. **Save** → the login page now exposes a "Sign in with Authentik" button.
+Override the admin user/password via env:
+
+```bash
+AUDIOBOOKSHELF_ADMIN_USER='c4' \
+AUDIOBOOKSHELF_ADMIN_PASSWORD='your-pass' \
+  python apps/scripts/audiobookshelf-defaults.py
+```
+
+### Recovery: don't even need the local admin password
+
+With OIDC's `Match existing users by: username` + `Auto-register: true`, your **Authentik `admin` account auto-links to ABS's local `admin`** on first OIDC login. You can use ABS forever via Authentik without ever knowing the local password — the password drift problem doesn't actually bite.
+
+If you DO want the local password (e.g. for the iOS app's local login flow), the script saves a recovery copy to `$TEMP/audiobookshelf-admin-pass.txt` before the API call, in case a downstream print crashes.
 
 ## Adding audiobooks
 
