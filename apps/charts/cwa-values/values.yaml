@@ -1,0 +1,94 @@
+# calibre-web-automated values for the homelab.
+#
+# Chart: bjw-s/app-template 4.6.2
+# CWA = Calibre-Web fork that auto-ingests books dropped into a folder
+# (auto-converts EPUB/PDF/MOBI/AZW3, fetches metadata, files into the
+# library tree). Public via Cloudflare Tunnel at https://books.chifor.dev.
+#
+# Storage layout (matches Nextcloud's NFS data tree so books appear in
+# Nextcloud's Books/ folder for drag-and-drop ingest):
+#   /calibre-library  -> NFS subPath data/admin/files/Books/Library
+#   /cwa-book-ingest  -> NFS subPath data/admin/files/Books/_ingest
+#   /config           -> Longhorn 1 GiB (CWA's SQLite + user DB)
+#
+# Auth: CWA inherits Calibre-Web's local-user auth -- no native OIDC.
+# Authentik integration via forward-auth is deferred (would need same
+# Traefik middleware + outpost dance as Navidrome). Initial credential
+# is auto-set on first launch -- "admin" / "admin123" -- change immediately
+# at /admin/view via the web UI.
+
+controllers:
+  main:
+    type: deployment
+    replicas: 1
+    strategy: Recreate    # PVCs RWO -- only one writer
+    containers:
+      main:
+        image:
+          repository: crocodilestick/calibre-web-automated
+          tag: V3.1.4
+        env:
+          PUID: "33"        # match Nextcloud's www-data so file ownership lines up
+          PGID: "33"
+          TZ: Europe/Bucharest
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits:   { memory: 1Gi }
+
+defaultPodOptions:
+  securityContext:
+    fsGroup: 33
+    fsGroupChangePolicy: OnRootMismatch
+    # NB: NO runAsUser/runAsGroup -- crocodilestick/calibre-web-automated
+    # is an LSIO-style image; s6-overlay's init scripts must run as root
+    # to chown the data dirs, then drop to PUID:PGID (33:33) for the
+    # actual app process. Forcing runAsUser: 33 makes init-adduser fail
+    # with "Permission denied" on /usr/bin/lsiown and the container
+    # never starts the http listener.
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 8083
+
+ingress:
+  main:
+    enabled: true
+    className: cloudflare-tunnel
+    annotations: {}
+    hosts:
+      - host: books.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+    tls: []   # Cloudflare terminates TLS at the edge
+
+persistence:
+  config:
+    enabled: true
+    storageClass: longhorn
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    advancedMounts:
+      main:
+        main:
+          - path: /config
+
+  # Same NFS PVC, two distinct subPath mounts -- bjw-s lets us list multiple
+  # mount entries under a single persistence block to avoid claiming the
+  # same PVC twice.
+  books-nfs:
+    enabled: true
+    existingClaim: cwa-books
+    advancedMounts:
+      main:
+        main:
+          - path: /calibre-library
+            subPath: data/admin/files/Books/Library
+          - path: /cwa-book-ingest
+            subPath: data/admin/files/Books/_ingest

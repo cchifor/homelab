@@ -114,6 +114,14 @@ config:
             href: https://app.plex.tv
             description: Movies + TV (Plex Pass, public via Remote Access)
             icon: plex.png
+        - Calibre-Web:
+            href: https://books.chifor.dev
+            description: Ebook library (public)
+            icon: calibre-web.png
+        - Audiobookshelf:
+            href: https://audiobooks.chifor.dev
+            description: Audiobooks + podcasts (public)
+            icon: audiobookshelf.png
 
     - Platform:
         - ArgoCD:

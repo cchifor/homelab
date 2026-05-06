@@ -309,6 +309,13 @@ APPS = [
         "redirect_uris": ["https://cloud.chifor.dev/apps/user_oidc/code"],
         "namespace": "nextcloud",
     },
+    {
+        "slug": "audiobookshelf",
+        "name": "Audiobookshelf",
+        # ABS native OIDC callback path (audiobookshelf 2.0+).
+        "redirect_uris": ["https://audiobooks.chifor.dev/auth/openid/callback"],
+        "namespace": "audiobookshelf",
+    },
     # Apps without native OIDC use Authentik's Embedded Outpost via Traefik
     # forward-auth. No client_id/client_secret to store; the app trusts the
     # X-authentik-username header injected by the outpost.

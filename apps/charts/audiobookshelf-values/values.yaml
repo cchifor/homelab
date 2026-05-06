@@ -1,0 +1,103 @@
+# audiobookshelf values for the homelab.
+#
+# Chart: bjw-s/app-template 4.6.2
+# Self-hosted audiobook + podcast server, mobile apps for iOS/Android.
+# Public via Cloudflare Tunnel at https://audiobooks.chifor.dev.
+#
+# Storage layout (NFS export shared with Nextcloud + Navidrome + CWA):
+#   /audiobooks  -> NFS subPath data/admin/files/Audiobooks
+#   /podcasts    -> NFS subPath data/admin/files/Podcasts
+#   /config      -> Longhorn 1 GiB (DB + user state)
+#   /metadata    -> Longhorn 5 GiB (cover-art cache, transcript cache, etc.)
+#
+# Auth: native OIDC via Authentik (since ABS 2.0). Configured via env vars
+# pulled from the authentik-oidc Secret that authentik-oidc-bootstrap.py
+# writes (no in-app config needed). User logs in via "Sign in with
+# Authentik" button on the login page; first OIDC user is auto-promoted
+# to admin if no admin exists yet.
+
+controllers:
+  main:
+    type: deployment
+    replicas: 1
+    strategy: Recreate
+    containers:
+      main:
+        image:
+          repository: ghcr.io/advplyr/audiobookshelf
+          tag: 2.30.0
+        env:
+          TZ: Europe/Bucharest
+          PORT: "80"
+          HOST: 0.0.0.0
+        # OIDC isn't wired via env vars (ABS persists auth config in its
+        # SQLite DB on first init and ignores env on subsequent boots).
+        # Configured manually via the admin UI post-install -- see README.
+        # The authentik-oidc Secret in this namespace already holds the
+        # client_id / client_secret / issuer the user pastes into the form.
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits:   { memory: 1Gi }
+
+defaultPodOptions:
+  securityContext:
+    fsGroup: 33               # Nextcloud writes audiobook files as 33:33
+    runAsUser: 1000           # ABS image runs as uid 1000
+    runAsGroup: 1000
+    supplementalGroups: [33]  # so uid 1000 reads files mode 0640 owned 33:33
+    fsGroupChangePolicy: OnRootMismatch
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 80
+
+ingress:
+  main:
+    enabled: true
+    className: cloudflare-tunnel
+    annotations: {}
+    hosts:
+      - host: audiobooks.chifor.dev
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+    tls: []
+
+persistence:
+  config:
+    enabled: true
+    storageClass: longhorn
+    size: 1Gi
+    accessMode: ReadWriteOnce
+    advancedMounts:
+      main:
+        main:
+          - path: /config
+
+  metadata:
+    enabled: true
+    storageClass: longhorn
+    size: 5Gi
+    accessMode: ReadWriteOnce
+    advancedMounts:
+      main:
+        main:
+          - path: /metadata
+
+  # Same NFS PVC, two subPaths.
+  media-nfs:
+    enabled: true
+    existingClaim: audiobookshelf-media
+    advancedMounts:
+      main:
+        main:
+          - path: /audiobooks
+            subPath: data/admin/files/Audiobooks
+          - path: /podcasts
+            subPath: data/admin/files/Podcasts

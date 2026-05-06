@@ -88,3 +88,77 @@ spec:
     requests:
       storage: 500Gi
   volumeName: navidrome-music-nfs
+
+---
+# Same NFS export, third PV for Calibre-Web Automated (Books library + ingest).
+# Mounts subPaths data/admin/files/Books/Library  -> /calibre-library
+#               data/admin/files/Books/_ingest    -> /cwa-book-ingest
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cwa-books-nfs
+  labels:
+    role: shared-cloud-data
+    consumer: cwa
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions: [nfsvers=4.2, noatime]
+  nfs:
+    server: 192.168.0.186
+    path: /mnt/storage/cloud-data
+  claimRef:
+    namespace: cwa
+    name: cwa-books
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cwa-books
+  namespace: cwa
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 500Gi
+  volumeName: cwa-books-nfs
+
+---
+# Same NFS export, fourth PV for Audiobookshelf (Audiobooks + Podcasts).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: audiobookshelf-media-nfs
+  labels:
+    role: shared-cloud-data
+    consumer: audiobookshelf
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions: [nfsvers=4.2, noatime]
+  nfs:
+    server: 192.168.0.186
+    path: /mnt/storage/cloud-data
+  claimRef:
+    namespace: audiobookshelf
+    name: audiobookshelf-media
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: audiobookshelf-media
+  namespace: audiobookshelf
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 500Gi
+  volumeName: audiobookshelf-media-nfs
