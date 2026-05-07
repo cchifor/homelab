@@ -83,7 +83,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
       "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}, "custom": {"drawStyle": "bars", "fillOpacity": 60, "lineWidth": 1, "barAlignment": 0, "showPoints": "never", "stacking": {"mode": "normal"}}}, "overrides": []},
       "options": {"legend": {"showLegend": true, "displayMode": "list", "placement": "right"}, "tooltip": {"mode": "multi"}},
-      "targets": [{"expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total[24h]))", "refId": "A", "legendFormat": "{{namespace}}"}]
+      "targets": [{"expr": "sum by (namespace) (increase(kube_pod_container_status_restarts_total[24h]) * on(namespace, pod) group_left() kube_pod_info)", "refId": "A", "legendFormat": "{{namespace}}"}]
     },
 
     {
