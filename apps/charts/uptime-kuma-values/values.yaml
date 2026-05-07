@@ -27,15 +27,59 @@ ingress:
       secretName: uptime-tls
 
 # === Resource limits ===
+# UK 2.x ships an embedded MariaDB (~200 MiB InnoDB buffer pool +
+# server overhead) on top of the Node process (~120 MiB). The previous
+# 256 MiB limit had the pod sitting at 97 % usage steady-state, which
+# pushed the bundled `extra/healthcheck` past its liveness-probe
+# timeout under any load spike — kubelet then killed and restarted
+# the pod (29 restarts in 3 days). 768 MiB leaves comfortable headroom
+# for monitor bursts and InnoDB recovery on restart.
 resources:
   requests:
     cpu: 50m
-    memory: 64Mi
-  limits:
     memory: 256Mi
+  limits:
+    memory: 768Mi
 
 # === Replicas ===
 replicaCount: 1
+
+# === Update strategy ===
+# Surge MUST be 0. UK 2.x's embedded MariaDB takes an exclusive fcntl
+# lock on /app/data/mariadb/ibdata1 + aria_log_control. The chart's
+# default RollingUpdate (maxSurge:25%) brings the new pod up while the
+# old one is still running; with Longhorn RWO both pods land on the
+# same node and can both mount the same volume, so the new pod fails
+# its InnoDB plugin init and crashloops until the old pod is deleted.
+# We can't use type:Recreate directly — the chart renders a non-null
+# rollingUpdate{} block alongside it and k8s rejects that combination.
+# maxSurge:0 + maxUnavailable:1 has the same effect (kill old pod
+# before starting new) without the schema conflict.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
+# === Probes ===
+# Liveness probe DISABLED. The chart's bundled `extra/healthcheck`
+# binary GETs http://127.0.0.1:3001 and expects an answer within
+# `timeoutSeconds`; UK 2.x runs all monitors on Node's single event
+# loop, so when 28+ monitors fire their tick simultaneously the HTTP
+# server stalls long enough for the probe to time out — even with the
+# chart's default 2s, our bumped 10s, or larger thresholds.
+# kubelet then SIGKILLs a perfectly healthy pod, MariaDB has to do
+# InnoDB recovery, and the cycle repeats (29 restarts in 3 days).
+# Readiness probe still removes the pod from the Service endpoints
+# if the HTTP server is genuinely down, so we don't lose health
+# signaling — we just stop the false-positive auto-restarts.
+livenessProbe:
+  enabled: false
+readinessProbe:
+  initialDelaySeconds: 60    # was 10; UK serves only after MariaDB recovery
+  periodSeconds: 15
+  timeoutSeconds: 10
+  failureThreshold: 5
 
 # === Service ===
 service:
