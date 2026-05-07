@@ -9,7 +9,8 @@
 #   2. Downloads the Alpine LXC template if missing.
 #   3. Creates the Debian-12 cloud-init template VM (VMID 9000) if missing.
 #   4. Read-only sanity check of /etc/network/interfaces and bond0 LACP.
-#   5. Prints a summary of state and reminders for the things only you can do.
+#   5. Installs host diagnostic tools (nvme-cli) if missing.
+#   6. Prints a summary of state and reminders for the things only you can do.
 #
 # Override defaults via env vars (see "Config" block).
 
@@ -56,7 +57,7 @@ TOKEN_FRESHLY_CREATED=0
 # ============================================================================
 # Step 1: API user + token
 # ============================================================================
-step "Step 1/4: API user + token"
+step "Step 1/5: API user + token"
 
 user_exists() {
   pveum user list --noborder --noheader 2>/dev/null | awk '{print $1}' | grep -qx "$1"
@@ -124,7 +125,7 @@ fi
 # ============================================================================
 # Step 2: Alpine LXC template
 # ============================================================================
-step "Step 2/4: Alpine ${ALPINE_VERSION} LXC template"
+step "Step 2/5: Alpine ${ALPINE_VERSION} LXC template"
 
 if ! pveam update >/dev/null 2>&1; then
   warn "pveam update failed (no internet?). Proceeding with the local catalog cache."
@@ -159,7 +160,7 @@ fi
 # ============================================================================
 # Step 3: Debian 12 cloud-init template VM
 # ============================================================================
-step "Step 3/4: Debian 12 cloud-init template VM (VMID $DEBIAN_VMID)"
+step "Step 3/5: Debian 12 cloud-init template VM (VMID $DEBIAN_VMID)"
 
 if qm status "$DEBIAN_VMID" >/dev/null 2>&1; then
   CURRENT_NAME=$(qm config "$DEBIAN_VMID" 2>/dev/null | awk '/^name:/{print $2; exit}')
@@ -196,7 +197,7 @@ fi
 # ============================================================================
 # Step 4: Network / bond sanity (read-only)
 # ============================================================================
-step "Step 4/4: Network sanity (read-only)"
+step "Step 4/5: Network sanity (read-only)"
 
 if grep -qE '^auto bond0' /etc/network/interfaces 2>/dev/null && \
    grep -qE '^auto vmbr0' /etc/network/interfaces 2>/dev/null; then
@@ -223,6 +224,24 @@ if [ -r /proc/net/bonding/bond0 ]; then
   fi
 else
   warn "/proc/net/bonding/bond0 not present — no bond configured."
+fi
+
+# ============================================================================
+# Step 5: Host diagnostic tools
+# ============================================================================
+# nvme-cli is not part of the default Proxmox install but is the only way to
+# read SMART (wear, temperature, media errors) from NVMe drives and to verify
+# pool-disk health beyond what `zpool status` reports. Lightweight (~1 MB,
+# zero runtime overhead — purely a CLI). Idempotent: dpkg-query short-circuits
+# if already installed, so re-running prep doesn't re-fetch.
+step "Step 5/5: Host diagnostic tools (nvme-cli)"
+
+if dpkg-query -W -f='${Status}' nvme-cli 2>/dev/null | grep -q "ok installed"; then
+  ok "nvme-cli already installed ($(nvme version 2>/dev/null | awk 'NR==1{print $3}'))"
+else
+  warn "nvme-cli missing; installing"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nvme-cli >/dev/null
+  ok "nvme-cli installed ($(nvme version 2>/dev/null | awk 'NR==1{print $3}'))"
 fi
 
 # ============================================================================
