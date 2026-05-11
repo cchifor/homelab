@@ -296,4 +296,20 @@ else
   systemctl enable --now cloudflared
 fi
 
+# -----------------------------------------------------------------------------
+# Section 8: ufw firewall (LAN-only inbound; cloudflared connects outbound)
+# -----------------------------------------------------------------------------
+echo "==> [8/?] ufw"
+
+# Reset to a known state on first run, then declare desired rules
+if [ "$(ufw status | head -1)" != "Status: active" ]; then
+  ufw --force reset >/dev/null
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw allow from 192.168.0.0/24 to any port 22 proto tcp comment 'SSH from LAN'
+  ufw allow from 192.168.0.0/24 to any port 443 proto tcp comment 'Caddy HTTPS from LAN'
+  ufw allow from 192.168.0.0/24 to any port 80 proto tcp comment 'Caddy HTTP redirect from LAN'
+  ufw --force enable
+fi
+
 echo "==> claude-worker bootstrap finished"
