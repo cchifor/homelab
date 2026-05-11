@@ -1,0 +1,80 @@
+#!/bin/bash
+# Claude Code worker post-boot bootstrap.
+# Driven from the operator machine via SSH; runs as root on the VM (sudo).
+# Idempotent — re-running re-applies; every section short-circuits if already done.
+
+set -euo pipefail
+
+echo "==> claude-worker bootstrap starting"
+
+# -----------------------------------------------------------------------------
+# Section 1: base packages + tmux defaults + claude-agent user + /workspace mount
+# -----------------------------------------------------------------------------
+echo "==> [1/?] base packages + users + /workspace"
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq \
+  build-essential curl wget git gh jq ripgrep fzf bat \
+  tmux htop ncdu unzip ca-certificates gnupg lsb-release \
+  ufw acl
+
+# yq is in a different repo on Debian — install via mikefarah binary release.
+# Distro 'yq' is the Python jq-wrapper, not what we want.
+if ! command -v /usr/local/bin/yq >/dev/null 2>&1; then
+  curl -sSLo /usr/local/bin/yq \
+    https://github.com/mikefarah/yq/releases/download/v4.44.5/yq_linux_amd64
+  chmod +x /usr/local/bin/yq
+fi
+
+# claude-agent user (no sudo, no shell login by default)
+if ! id claude-agent >/dev/null 2>&1; then
+  adduser --system --group --shell /bin/bash --home /home/claude-agent claude-agent
+  mkdir -p /home/claude-agent/.ssh
+  cp /home/${ssh_user}/.ssh/authorized_keys /home/claude-agent/.ssh/authorized_keys
+  chown -R claude-agent:claude-agent /home/claude-agent
+  chmod 700 /home/claude-agent/.ssh
+  chmod 600 /home/claude-agent/.ssh/authorized_keys
+fi
+
+# /workspace from /dev/sdb (the 48 G data disk)
+if ! mountpoint -q /workspace; then
+  if ! blkid /dev/sdb >/dev/null 2>&1; then
+    mkfs.ext4 -L workspace /dev/sdb
+  fi
+  mkdir -p /workspace
+  echo "LABEL=workspace /workspace ext4 defaults,noatime 0 2" >> /etc/fstab
+  mount /workspace
+fi
+# Group-writable, sgid so new files inherit group
+chown claude-agent:${ssh_user} /workspace
+chmod 2775 /workspace
+mkdir -p /workspace/${ssh_user} /workspace/claude-agent /workspace/agent-jobs /workspace/shared
+chown ${ssh_user}:${ssh_user}           /workspace/${ssh_user}
+chown claude-agent:claude-agent         /workspace/claude-agent
+chown claude-agent:claude-agent         /workspace/agent-jobs
+chown ${ssh_user}:${ssh_user}           /workspace/shared
+
+# tmux auto-attach on login (only for interactive SSH/ttyd, not cron)
+cat > /etc/profile.d/00-tmux-attach.sh <<'EOF'
+# Auto-attach interactive shells to the shared 'main' tmux session.
+if command -v tmux >/dev/null 2>&1 && [ -n "$SSH_TTY" ] && [ -z "$TMUX" ] && [ "$TERM" != "dumb" ]; then
+  tmux new-session -A -s main
+fi
+EOF
+chmod +x /etc/profile.d/00-tmux-attach.sh
+
+# Minimal tmux.conf for both users
+cat > /etc/skel/.tmux.conf <<'EOF'
+set -g mouse on
+set -g history-limit 50000
+bind | split-window -h
+bind - split-window -v
+set -g default-terminal "tmux-256color"
+EOF
+for u in ${ssh_user} claude-agent; do
+  cp /etc/skel/.tmux.conf /home/$u/.tmux.conf
+  chown $u:$u /home/$u/.tmux.conf
+done
+
+echo "==> claude-worker bootstrap finished"

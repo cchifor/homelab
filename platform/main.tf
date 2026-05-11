@@ -657,3 +657,42 @@ resource "helm_release" "rancher" {
   timeout = 900
   wait    = true
 }
+
+# =============================================================================
+# Claude worker bootstrap (install OS packages, users, software via SSH)
+# =============================================================================
+
+resource "null_resource" "claude_worker_bootstrap" {
+  count      = var.claude_worker_enabled ? 1 : 0
+  depends_on = [module.claude_worker]
+
+  triggers = {
+    vm_id = module.claude_worker[0].vmid
+    script_sha = sha256(templatefile("${path.module}/files/cloud-init/claude-worker-bootstrap.sh.tftpl", {
+      ssh_user = var.claude_worker_ssh_user
+    }))
+  }
+
+  connection {
+    type        = "ssh"
+    host        = module.claude_worker[0].vm_ip
+    user        = var.claude_worker_ssh_user
+    private_key = file(pathexpand(var.claude_worker_ssh_private_key_path))
+    timeout     = "10m"
+  }
+
+  provisioner "file" {
+    content = templatefile("${path.module}/files/cloud-init/claude-worker-bootstrap.sh.tftpl", {
+      ssh_user = var.claude_worker_ssh_user
+    })
+    destination = "/tmp/claude-worker-bootstrap.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/claude-worker-bootstrap.sh",
+      "sudo /tmp/claude-worker-bootstrap.sh",
+      "rm -f /tmp/claude-worker-bootstrap.sh",
+    ]
+  }
+}
