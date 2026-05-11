@@ -104,6 +104,33 @@ module "plex_lxc" {
   proxmox_host_ssh_private_key_path = pathexpand(var.proxmox_host_ssh_private_key_path)
 }
 
+module "claude_worker" {
+  count  = var.claude_worker_enabled ? 1 : 0
+  source = "./modules/proxmox_vm_claude_worker"
+
+  node_name = var.pm_node_name
+  hostname  = var.claude_worker_hostname
+
+  template_name = var.claude_worker_template_name
+
+  cores          = var.claude_worker_cores
+  sockets        = 1
+  memory_mb      = var.claude_worker_memory_mb
+  root_disk_size = var.claude_worker_root_disk
+  data_disk_size = var.claude_worker_data_disk
+  storage_pool   = var.claude_worker_storage_pool
+  bios           = "seabios"
+
+  ip      = var.claude_worker_ip
+  gateway = var.lan_gateway
+  dns     = var.lan_dns
+  bridge  = var.bridge
+  mtu     = var.mtu
+
+  ssh_user       = var.claude_worker_ssh_user
+  ssh_public_key = var.claude_worker_ssh_public_key
+}
+
 module "k3s_server" {
   source = "./modules/proxmox_vm_k3s_server"
 
