@@ -157,10 +157,11 @@ set -g pane-active-border-style "fg=#5fd7ff"
 # Message line (e.g., 'tmux.conf reloaded'): high-contrast yellow on black
 set -g message-style            "fg=#000000,bg=#ffd700,bold"
 
-# Click on the left status segment (hostname / session name) → open the
-# session picker. Otherwise it's just informational text and clicks do
-# nothing, which is confusing when you have both 'main' and 'dashboard'.
-bind -n MouseDown1StatusLeft choose-tree -Zs
+# Click on the left status segment (hostname / session name) → open a
+# pure session picker. choose-session (not choose-tree) so clicking a
+# session switches directly to it instead of expanding it into a window
+# sub-tree — windows are already clickable in the status bar to the right.
+bind -n MouseDown1StatusLeft choose-session -Z
 EOF
 for u in ${ssh_user} claude-agent; do
   cp /etc/skel/.tmux.conf /home/$u/.tmux.conf
