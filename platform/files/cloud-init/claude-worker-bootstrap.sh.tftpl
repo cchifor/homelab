@@ -515,4 +515,35 @@ EOF
   systemctl enable --now restic-backup.timer
 fi
 
+# -----------------------------------------------------------------------------
+# Section 12: claude-run dispatcher (SSH-triggered ad-hoc job runs)
+# -----------------------------------------------------------------------------
+echo "==> [12/?] claude-run"
+
+cat > /usr/local/bin/claude-run <<'EOF'
+#!/bin/bash
+# Trigger an agent job by name. Usage: claude-run <job-name> [extra prompt arg]
+# Reads /workspace/agent-jobs/<job-name>/{prompt.md, allowed-tools.txt, job.env}.
+# Output is captured to /workspace/agent-jobs/<job-name>/output/<timestamp>.jsonl
+# and tailed back to the caller in real time.
+
+set -euo pipefail
+JOB="$${1:-}"
+[ -z "$JOB" ] && { echo "usage: claude-run <job-name> [extra-prompt]" >&2; exit 1; }
+DIR="/workspace/agent-jobs/$JOB"
+[ -d "$DIR" ] || { echo "claude-run: $DIR does not exist" >&2; exit 1; }
+
+# Run the same systemd unit pattern as the timer so behaviour is identical
+exec sudo systemctl start --wait "claude-job@$${JOB}.service"
+EOF
+chmod 0755 /usr/local/bin/claude-run
+
+# Sudoer rule allowing c4 + claude-agent to start claude-job@*.service WITHOUT
+# password — but only those units, nothing else
+cat > /etc/sudoers.d/claude-job-trigger <<EOF
+${ssh_user} ALL=(root) NOPASSWD: /bin/systemctl start --wait claude-job@*.service
+${ssh_user} ALL=(root) NOPASSWD: /bin/systemctl start claude-job@*.service
+EOF
+chmod 0440 /etc/sudoers.d/claude-job-trigger
+
 echo "==> claude-worker bootstrap finished"
