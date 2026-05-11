@@ -158,11 +158,14 @@ set -g pane-active-border-style "fg=#5fd7ff"
 set -g message-style            "fg=#000000,bg=#ffd700,bold"
 
 # Click on the left status segment (hostname / session name) → open a
-# session picker. choose-tree's default-on-Enter behavior in tmux 3.3a
-# is "expand into windows" when run with -s; passing an explicit template
-# ('switch-client -t %%') forces direct session switch instead. Windows
-# remain clickable in the status bar to the right.
-bind -n MouseDown1StatusLeft choose-tree -Zs "switch-client -t '%%'"
+# flat session picker. We use display-menu (via a tiny wrapper script)
+# instead of choose-tree because choose-tree always tracks a "selected
+# window" target internally — even in -s sessions-only mode — so
+# clicking what looks like the session row can switch to a child window
+# (most recently 'cheats') rather than to the session's current window.
+# display-menu lists session names and only session names; selecting one
+# runs switch-client -t SESSION cleanly.
+bind -n MouseDown1StatusLeft run-shell "/usr/local/bin/tmux-session-menu"
 EOF
 for u in ${ssh_user} claude-agent; do
   cp /etc/skel/.tmux.conf /home/$u/.tmux.conf
@@ -676,23 +679,32 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Section 14: claude-dashboard launcher (5-window monitoring tmux session)
+# Section 14: claude-dashboard launcher (6-window monitoring tmux session)
 # -----------------------------------------------------------------------------
 # Typing 'claude-dashboard' builds (or attaches to) a separate tmux session
-# named 'dashboard' with five named windows:
+# named 'sessions' with six named windows:
 #   home    - shell at /workspace/$USER
 #   cluster - k9s pointed at the read-only kubeconfig
 #   system  - htop
 #   jobs    - journalctl -f on the claude-job@*.service units
 #   docker  - docker ps + docker stats refreshing every 5s
+#   cheats  - tmux/Linux cheatsheet (pr -m -t side-by-side)
 # The default auto-attach SSH session ('main') is untouched — only invoked
 # when the operator explicitly runs claude-dashboard.
 echo "==> [14/?] claude-dashboard launcher"
 
 cat > /usr/local/bin/claude-dashboard <<'EOF'
 #!/bin/bash
-# Build (or attach to) a multi-window 'dashboard' tmux session.
-SESSION=dashboard
+# Build (or attach to) the multi-window 'sessions' tmux session.
+SESSION=sessions
+
+# Backward compat: an earlier version of this launcher named the session
+# 'dashboard'. If the old name still exists (and the new one doesn't),
+# rename it in-place so the user keeps their state.
+if tmux has-session -t dashboard 2>/dev/null && ! tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux rename-session -t dashboard "$SESSION"
+fi
+
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   exec tmux attach -t "$SESSION"
 fi
@@ -711,6 +723,26 @@ tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
 EOF
 chmod 0755 /usr/local/bin/claude-dashboard
+
+# Menu wrapper invoked by tmux's MouseDown1StatusLeft binding (status-left
+# click). Enumerates current sessions and pops a display-menu — flat, no
+# nested windows, no surprises. Selecting an entry runs switch-client.
+cat > /usr/local/bin/tmux-session-menu <<'EOF'
+#!/bin/bash
+# Build a tmux display-menu listing all sessions; selecting one switches to it.
+set -euo pipefail
+
+# Each menu entry is three positional args: title, accelerator-key, command.
+# We don't bother with accelerator keys; the user clicks or arrows.
+ARGS=()
+while IFS= read -r name; do
+  ARGS+=("$name" "" "switch-client -t '$name'")
+done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+
+[ "$${#ARGS[@]}" -eq 0 ] && exit 0
+exec tmux display-menu -T '#[align=centre]Sessions' -x M -y W "$${ARGS[@]}"
+EOF
+chmod 0755 /usr/local/bin/tmux-session-menu
 
 # Cheat-sheet shown in the 6th dashboard window. Two narrow text files
 # rendered side-by-side via `pr -m -t -w $(tput cols)` at view time, so the
