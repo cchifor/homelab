@@ -698,3 +698,19 @@ resource "null_resource" "claude_worker_bootstrap" {
     ]
   }
 }
+
+# =============================================================================
+# Claude worker — k8s ServiceAccounts (RO default + RW opt-in)
+# =============================================================================
+
+data "kubectl_file_documents" "claude_agent_rbac" {
+  count   = var.claude_worker_enabled ? 1 : 0
+  content = file("${path.module}/files/k8s/claude-agent-rbac.yaml.tftpl")
+}
+
+resource "kubectl_manifest" "claude_agent_rbac" {
+  for_each = var.claude_worker_enabled ? data.kubectl_file_documents.claude_agent_rbac[0].manifests : {}
+
+  yaml_body  = each.value
+  depends_on = [data.local_sensitive_file.kubeconfig]
+}

@@ -1,0 +1,69 @@
+# Two ServiceAccounts for the Claude worker.
+# Each gets a long-lived bearer token Secret (kubernetes.io/service-account-token).
+# Token-Request API is preferred but expires; we want a stable token the worker
+# can store. The long-lived Secret approach is officially deprecated but still
+# supported in k3s 1.30 — re-evaluate if k8s 1.34+ deprecates it for real.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: claude-agent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: claude-agent-ro
+  namespace: claude-agent
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: claude-agent-ro-token
+  namespace: claude-agent
+  annotations:
+    kubernetes.io/service-account.name: claude-agent-ro
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: claude-agent-ro-view
+subjects:
+  - kind: ServiceAccount
+    name: claude-agent-ro
+    namespace: claude-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: claude-agent-rw
+  namespace: claude-agent
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: claude-agent-rw-token
+  namespace: claude-agent
+  annotations:
+    kubernetes.io/service-account.name: claude-agent-rw
+type: kubernetes.io/service-account-token
+---
+# 'edit' is a stock ClusterRole; lets the SA mutate namespaced resources
+# (deployments, services, configmaps, etc.) but NOT cluster-scoped resources
+# (nodes, CRDs, RBAC). Roughly: power-user without admin.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: claude-agent-rw-edit
+subjects:
+  - kind: ServiceAccount
+    name: claude-agent-rw
+    namespace: claude-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
