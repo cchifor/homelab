@@ -102,4 +102,55 @@ usermod -aG docker claude-agent || true
 
 systemctl enable --now docker
 
+# -----------------------------------------------------------------------------
+# Section 3: Node.js 20 LTS + Claude Code CLI (per-user, no sudo npm)
+# -----------------------------------------------------------------------------
+echo "==> [3/?] Node.js + Claude Code"
+
+if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -d. -f1)" != "v20" ]; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y -qq nodejs
+fi
+
+# Per-user global npm prefix so 'npm install -g' works without sudo
+install_claude_code_for() {
+  local user=$1
+  local home
+  home=$(getent passwd "$user" | cut -d: -f6)
+  sudo -u "$user" mkdir -p "$home/.npm-global"
+  sudo -u "$user" npm config set prefix "$home/.npm-global"
+  if ! sudo -u "$user" "$home/.npm-global/bin/claude" --version >/dev/null 2>&1; then
+    sudo -u "$user" npm install -g @anthropic-ai/claude-code
+  fi
+  # PATH update in user's ~/.bashrc (idempotent grep guard)
+  if ! grep -qF '.npm-global/bin' "$home/.bashrc" 2>/dev/null; then
+    echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> "$home/.bashrc"
+  fi
+}
+
+install_claude_code_for ${ssh_user}
+install_claude_code_for claude-agent
+
+# Shared OAuth: c4's interactive shells read claude-agent's credentials
+cat > /etc/profile.d/01-claude-shared-oauth.sh <<'EOF'
+# Both users share one OAuth token, owned by claude-agent.
+# For c4's interactive shells: point CLAUDE_HOME at claude-agent's dir.
+# claude-agent's own shells use their default ~/.claude (no override needed).
+if [ "$USER" = "__SSH_USER__" ]; then
+  export CLAUDE_HOME=/home/claude-agent/.claude
+fi
+EOF
+# Substitute the user name into the file (the heredoc is single-quoted so $USER stays)
+sed -i "s/__SSH_USER__/${ssh_user}/" /etc/profile.d/01-claude-shared-oauth.sh
+chmod +x /etc/profile.d/01-claude-shared-oauth.sh
+
+# Grant c4 read access to claude-agent's .claude dir (defaults so future files
+# inside .claude inherit). claude-agent stays the owner; c4 is the secondary
+# group on the .claude tree.
+sudo -u claude-agent mkdir -p /home/claude-agent/.claude
+chgrp -R ${ssh_user} /home/claude-agent/.claude
+chmod 750 /home/claude-agent /home/claude-agent/.claude
+setfacl -R -m g:${ssh_user}:rx /home/claude-agent/.claude
+setfacl -R -d -m g:${ssh_user}:rx /home/claude-agent/.claude
+
 echo "==> claude-worker bootstrap finished"
