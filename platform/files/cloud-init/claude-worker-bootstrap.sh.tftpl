@@ -312,4 +312,39 @@ if [ "$(ufw status | head -1)" != "Status: active" ]; then
   ufw --force enable
 fi
 
+# -----------------------------------------------------------------------------
+# Section 9: claude-grant-write helper (opt-in RW kubeconfig)
+# -----------------------------------------------------------------------------
+echo "==> [9/?] claude-grant-write"
+
+cat > /usr/local/bin/claude-grant-write <<'EOF'
+#!/bin/bash
+# Opt-in escalation: switch the current shell's KUBECONFIG to the RW config.
+# The RW config is root-readable only — accessing it requires sudo, which
+# means the operator has to type their password. Even an agent prompt that
+# 'bash -c's its way out cannot reach edit-level RBAC without that password.
+
+set -euo pipefail
+RW=/etc/claude-agent/kube-rw-config
+
+if [ ! -r "$RW" ]; then
+  if ! sudo test -r "$RW"; then
+    echo "claude-grant-write: $RW does not exist yet. Has Terraform fetched the RW kubeconfig?" >&2
+    exit 1
+  fi
+  # Stage a per-user readable copy under /run (tmpfs, ephemeral)
+  STAGED="/run/user/$(id -u)/kube-rw-config"
+  install -d -m 0700 "$(dirname "$STAGED")"
+  sudo install -m 0400 -o "$(id -u)" -g "$(id -g)" "$RW" "$STAGED"
+else
+  STAGED="$RW"
+fi
+
+echo "claude-grant-write: KUBECONFIG=$STAGED exported for this shell."
+echo "  - kubectl now has edit-level RBAC against the cluster."
+echo "  - 'exit' or open a new shell to drop back to read-only."
+exec env KUBECONFIG="$STAGED" "$SHELL"
+EOF
+chmod 0755 /usr/local/bin/claude-grant-write
+
 echo "==> claude-worker bootstrap finished"
