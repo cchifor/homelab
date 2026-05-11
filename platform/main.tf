@@ -799,3 +799,40 @@ resource "null_resource" "claude_worker_kubeconfigs" {
     ]
   }
 }
+
+# =============================================================================
+# Claude worker — sanoid ZFS snapshots on the Proxmox host
+# =============================================================================
+
+resource "null_resource" "claude_worker_snapshots" {
+  count      = var.claude_worker_enabled ? 1 : 0
+  depends_on = [null_resource.claude_worker_bootstrap]
+
+  triggers = {
+    vm_id = module.claude_worker[0].vmid
+  }
+
+  connection {
+    type        = "ssh"
+    host        = var.proxmox_host_address
+    user        = var.proxmox_host_ssh_user
+    private_key = file(pathexpand(var.proxmox_host_ssh_private_key_path))
+    timeout     = "5m"
+  }
+
+  provisioner "file" {
+    content = templatefile("${path.module}/files/cloud-init/proxmox-sanoid-setup.sh.tftpl", {
+      vm_id = module.claude_worker[0].vmid
+      pool  = var.claude_worker_storage_pool
+    })
+    destination = "/tmp/proxmox-sanoid-setup.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/proxmox-sanoid-setup.sh",
+      "/tmp/proxmox-sanoid-setup.sh",
+      "rm -f /tmp/proxmox-sanoid-setup.sh",
+    ]
+  }
+}

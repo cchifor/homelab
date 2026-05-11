@@ -1,0 +1,53 @@
+#!/bin/bash
+# Configure sanoid on the Proxmox host to snapshot the claude-worker's
+# two zvols (root + data). Idempotent.
+set -euo pipefail
+
+VM_ID='${vm_id}'
+POOL='${pool}'
+
+# Install sanoid if missing
+if ! command -v sanoid >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq sanoid
+fi
+
+mkdir -p /etc/sanoid
+cat > /etc/sanoid/sanoid-claude-worker.conf <<EOF
+[$${POOL}/vm-$${VM_ID}-disk-0]
+use_template = production
+[$${POOL}/vm-$${VM_ID}-disk-1]
+use_template = workspace
+
+[template_production]
+frequently = 0
+hourly = 0
+daily = 3
+monthly = 0
+yearly = 0
+
+[template_workspace]
+frequently = 0
+hourly = 0
+daily = 7
+weekly = 4
+monthly = 0
+yearly = 0
+autosnap = yes
+autoprune = yes
+EOF
+
+# sanoid's main config includes only /etc/sanoid/sanoid.conf — we have to
+# source our snippet from there.
+if ! grep -qF 'sanoid-claude-worker.conf' /etc/sanoid/sanoid.conf 2>/dev/null; then
+  # First-time setup: copy the default + append our datasets
+  if [ ! -f /etc/sanoid/sanoid.conf ]; then
+    cp /usr/share/sanoid/sanoid.defaults.conf /etc/sanoid/sanoid.conf
+  fi
+  cat /etc/sanoid/sanoid-claude-worker.conf >> /etc/sanoid/sanoid.conf
+fi
+
+# Ensure the systemd timers are running
+systemctl enable --now sanoid.timer
+echo "sanoid configured for VM $VM_ID disks on pool $POOL"
