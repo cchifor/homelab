@@ -450,4 +450,69 @@ systemctl enable claude-job@nightly-repo-audit.timer
 # Stop the nightly-repo-audit timer until configured
 systemctl stop  claude-job@nightly-repo-audit.timer || true
 
+# -----------------------------------------------------------------------------
+# Section 11: restic backup to MinIO (off-host)
+# -----------------------------------------------------------------------------
+echo "==> [11/?] restic"
+
+RESTIC_REPO='${restic_repo_url}'
+RESTIC_PASSWORD='${restic_password}'
+
+if [ -z "$RESTIC_PASSWORD" ]; then
+  echo "    (no restic password configured — skipping restic install)"
+else
+  if ! command -v restic >/dev/null 2>&1; then
+    apt-get install -y -qq restic
+  fi
+
+  install -d -m 0700 /etc/restic
+  echo "$RESTIC_PASSWORD" > /etc/restic/repo.key
+  chmod 0600 /etc/restic/repo.key
+  cat > /etc/restic/env <<EOF
+export RESTIC_REPOSITORY="$RESTIC_REPO"
+export RESTIC_PASSWORD_FILE=/etc/restic/repo.key
+# AWS_* creds for MinIO (S3-compatible). The NAS LXC's MinIO root user
+# is fine for a single-tenant homelab; tighten with a scoped user later.
+export AWS_ACCESS_KEY_ID="\$(cat /etc/restic/minio-access)"
+export AWS_SECRET_ACCESS_KEY="\$(cat /etc/restic/minio-secret)"
+EOF
+  chmod 0600 /etc/restic/env
+
+  # Initialize repo if absent (probes via 'restic snapshots' — failure = uninit)
+  if ! ( . /etc/restic/env && restic snapshots >/dev/null 2>&1 ); then
+    ( . /etc/restic/env && restic init ) || echo "    (restic init failed — likely missing MinIO creds; finish setup per module README)"
+  fi
+
+  # Backup unit + timer
+  cat > /etc/systemd/system/restic-backup.service <<'EOF'
+[Unit]
+Description=restic backup to MinIO
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/env
+ExecStart=/usr/bin/restic backup --quiet \
+  --exclude /workspace/agent-jobs/*/repos \
+  --exclude /home/*/.cache \
+  --exclude /var/lib/docker \
+  /workspace /home /etc/cloudflared /etc/claude-agent
+ExecStartPost=/usr/bin/restic forget --quiet --prune \
+  --keep-daily 7 --keep-weekly 4 --keep-monthly 6
+EOF
+  cat > /etc/systemd/system/restic-backup.timer <<'EOF'
+[Unit]
+Description=Daily restic backup
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=restic-backup.service
+
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now restic-backup.timer
+fi
+
 echo "==> claude-worker bootstrap finished"

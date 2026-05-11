@@ -671,6 +671,8 @@ resource "null_resource" "claude_worker_bootstrap" {
     script_sha = sha256(templatefile("${path.module}/files/cloud-init/claude-worker-bootstrap.sh.tftpl", {
       ssh_user        = var.claude_worker_ssh_user
       cf_tunnel_token = var.claude_worker_cf_tunnel_token
+      restic_repo_url = var.claude_worker_restic_repo_url
+      restic_password = var.claude_worker_restic_password
     }))
   }
 
@@ -686,6 +688,8 @@ resource "null_resource" "claude_worker_bootstrap" {
     content = templatefile("${path.module}/files/cloud-init/claude-worker-bootstrap.sh.tftpl", {
       ssh_user        = var.claude_worker_ssh_user
       cf_tunnel_token = var.claude_worker_cf_tunnel_token
+      restic_repo_url = var.claude_worker_restic_repo_url
+      restic_password = var.claude_worker_restic_password
     })
     destination = "/tmp/claude-worker-bootstrap.sh"
   }
