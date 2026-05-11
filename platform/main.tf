@@ -714,3 +714,88 @@ resource "kubectl_manifest" "claude_agent_rbac" {
   yaml_body  = each.value
   depends_on = [data.local_sensitive_file.kubeconfig]
 }
+
+# =============================================================================
+# Claude worker — read SA tokens from cluster, render kubeconfigs, scp to VM
+# =============================================================================
+
+data "kubernetes_secret" "claude_agent_ro_token" {
+  count = var.claude_worker_enabled ? 1 : 0
+
+  metadata {
+    name      = "claude-agent-ro-token"
+    namespace = "claude-agent"
+  }
+
+  depends_on = [kubectl_manifest.claude_agent_rbac]
+}
+
+data "kubernetes_secret" "claude_agent_rw_token" {
+  count = var.claude_worker_enabled ? 1 : 0
+
+  metadata {
+    name      = "claude-agent-rw-token"
+    namespace = "claude-agent"
+  }
+
+  depends_on = [kubectl_manifest.claude_agent_rbac]
+}
+
+locals {
+  claude_worker_ro_kubeconfig = var.claude_worker_enabled ? templatefile("${path.module}/files/k8s/sa-kubeconfig.yaml.tftpl", {
+    cluster_server = "https://${var.cp_ip}:6443"
+    cluster_ca_b64 = base64encode(data.kubernetes_secret.claude_agent_ro_token[0].data["ca.crt"])
+    sa_name        = "claude-agent-ro"
+    token          = data.kubernetes_secret.claude_agent_ro_token[0].data["token"]
+  }) : ""
+
+  claude_worker_rw_kubeconfig = var.claude_worker_enabled ? templatefile("${path.module}/files/k8s/sa-kubeconfig.yaml.tftpl", {
+    cluster_server = "https://${var.cp_ip}:6443"
+    cluster_ca_b64 = base64encode(data.kubernetes_secret.claude_agent_rw_token[0].data["ca.crt"])
+    sa_name        = "claude-agent-rw"
+    token          = data.kubernetes_secret.claude_agent_rw_token[0].data["token"]
+  }) : ""
+}
+
+resource "null_resource" "claude_worker_kubeconfigs" {
+  count = var.claude_worker_enabled ? 1 : 0
+
+  depends_on = [
+    null_resource.claude_worker_bootstrap,
+    data.kubernetes_secret.claude_agent_ro_token,
+    data.kubernetes_secret.claude_agent_rw_token,
+  ]
+
+  triggers = {
+    ro_sha = sha256(local.claude_worker_ro_kubeconfig)
+    rw_sha = sha256(local.claude_worker_rw_kubeconfig)
+  }
+
+  connection {
+    type        = "ssh"
+    host        = module.claude_worker[0].vm_ip
+    user        = var.claude_worker_ssh_user
+    private_key = file(pathexpand(var.claude_worker_ssh_private_key_path))
+    timeout     = "5m"
+  }
+
+  provisioner "file" {
+    content     = local.claude_worker_ro_kubeconfig
+    destination = "/tmp/sa-ro.kubeconfig"
+  }
+
+  provisioner "file" {
+    content     = local.claude_worker_rw_kubeconfig
+    destination = "/tmp/sa-rw.kubeconfig"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo install -m 0600 -o ${var.claude_worker_ssh_user}  -g ${var.claude_worker_ssh_user}  /tmp/sa-ro.kubeconfig /home/${var.claude_worker_ssh_user}/.kube/config",
+      "sudo install -m 0600 -o claude-agent -g claude-agent /tmp/sa-ro.kubeconfig /home/claude-agent/.kube/config",
+      "sudo install -d -m 0700 -o root -g root /etc/claude-agent",
+      "sudo install -m 0400 -o root -g root /tmp/sa-rw.kubeconfig /etc/claude-agent/kube-rw-config",
+      "rm -f /tmp/sa-ro.kubeconfig /tmp/sa-rw.kubeconfig",
+    ]
+  }
+}

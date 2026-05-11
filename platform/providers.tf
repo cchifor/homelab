@@ -20,3 +20,7 @@ provider "kubectl" {
   config_path      = var.local_kubeconfig_path
   load_config_file = true
 }
+
+provider "kubernetes" {
+  config_path = var.local_kubeconfig_path
+}
