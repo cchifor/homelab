@@ -711,6 +711,7 @@ variable "claude_worker_ssh_user" {
 
 variable "claude_worker_ssh_public_key" {
   type        = string
+  default     = ""
   description = "SSH public key contents (the value, not path) authorized for ssh_user. Set in tfvars or via TF_VAR_claude_worker_ssh_public_key."
 }
 
