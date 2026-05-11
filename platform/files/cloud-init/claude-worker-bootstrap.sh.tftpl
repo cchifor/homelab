@@ -100,13 +100,53 @@ fi
 EOF
 chmod +x /etc/profile.d/00-tmux-attach.sh
 
-# Minimal tmux.conf for both users
+# Tmux config — vi copy mode, hjkl pane nav, Catppuccin Mocha status bar
+# with hostname / session / k8s-context / load / time. True-color through SSH.
 cat > /etc/skel/.tmux.conf <<'EOF'
+# ── core ───────────────────────────────────────────────────────────────
 set -g mouse on
-set -g history-limit 50000
-bind | split-window -h
-bind - split-window -v
+set -g history-limit 100000
+set -g base-index 1
+setw -g pane-base-index 1
+set -g renumber-windows on
+set -g focus-events on
+set -sg escape-time 10
 set -g default-terminal "tmux-256color"
+set -ga terminal-overrides ",xterm-256color:Tc"
+
+# vi-style copy mode
+setw -g mode-keys vi
+bind-key -T copy-mode-vi v send-keys -X begin-selection
+bind-key -T copy-mode-vi y send-keys -X copy-selection-and-cancel
+
+# ── pane / window keys ─────────────────────────────────────────────────
+bind | split-window -h -c "#{pane_current_path}"
+bind - split-window -v -c "#{pane_current_path}"
+bind c new-window      -c "#{pane_current_path}"
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+bind -r H resize-pane -L 5
+bind -r J resize-pane -D 5
+bind -r K resize-pane -U 5
+bind -r L resize-pane -R 5
+bind r source-file ~/.tmux.conf \; display "tmux.conf reloaded"
+
+# ── status bar (Catppuccin Mocha) ──────────────────────────────────────
+set -g status-interval 5
+set -g status-position bottom
+set -g status-justify left
+set -g status-style "bg=#1e1e2e,fg=#cdd6f4"
+set -g status-left-length 40
+set -g status-right-length 120
+set -g status-left  "#[fg=#89b4fa,bold] #h #[fg=#6c7086]│#[fg=#a6e3a1] #S #[fg=#6c7086]│ "
+set -g status-right "#[fg=#fab387]k8s:#(kubectl config current-context 2>/dev/null || echo none) #[fg=#6c7086]│#[fg=#f9e2af] load:#(cut -d' ' -f1-3 /proc/loadavg) #[fg=#6c7086]│#[fg=#cba6f7] %a %H:%M "
+setw -g window-status-current-style "fg=#1e1e2e,bg=#89b4fa,bold"
+setw -g window-status-current-format " #I:#W "
+setw -g window-status-format         " #I:#W "
+set -g pane-border-style        "fg=#45475a"
+set -g pane-active-border-style "fg=#89b4fa"
 EOF
 for u in ${ssh_user} claude-agent; do
   cp /etc/skel/.tmux.conf /home/$u/.tmux.conf
@@ -618,5 +658,37 @@ else
   # Operator hasn't opted in — leave the cloud-init pubkey-only default alone.
   echo "    (no c4 password configured — keeping pubkey-only sshd)"
 fi
+
+# -----------------------------------------------------------------------------
+# Section 14: claude-dashboard launcher (5-window monitoring tmux session)
+# -----------------------------------------------------------------------------
+# Typing 'claude-dashboard' builds (or attaches to) a separate tmux session
+# named 'dashboard' with five named windows:
+#   home    - shell at /workspace/$USER
+#   cluster - k9s pointed at the read-only kubeconfig
+#   system  - htop
+#   jobs    - journalctl -f on the claude-job@*.service units
+#   docker  - docker ps + docker stats refreshing every 5s
+# The default auto-attach SSH session ('main') is untouched — only invoked
+# when the operator explicitly runs claude-dashboard.
+echo "==> [14/?] claude-dashboard launcher"
+
+cat > /usr/local/bin/claude-dashboard <<'EOF'
+#!/bin/bash
+# Build (or attach to) a multi-window 'dashboard' tmux session.
+SESSION=dashboard
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  exec tmux attach -t "$SESSION"
+fi
+
+tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
+tmux new-window   -t "$SESSION:" -n cluster 'k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A)'
+tmux new-window   -t "$SESSION:" -n system  'htop'
+tmux new-window   -t "$SESSION:" -n jobs    'journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f'
+tmux new-window   -t "$SESSION:" -n docker  'while true; do clear; echo "── docker ps ──"; docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; echo; echo "── docker stats ──"; docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" 2>/dev/null; sleep 5; done'
+tmux select-window -t "$SESSION:home"
+exec tmux attach -t "$SESSION"
+EOF
+chmod 0755 /usr/local/bin/claude-dashboard
 
 echo "==> claude-worker bootstrap finished"
