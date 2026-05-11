@@ -347,4 +347,107 @@ exec env KUBECONFIG="$STAGED" "$SHELL"
 EOF
 chmod 0755 /usr/local/bin/claude-grant-write
 
+# -----------------------------------------------------------------------------
+# Section 10: systemd timer template + example agent-job skeletons
+# -----------------------------------------------------------------------------
+echo "==> [10/?] claude-job systemd template + examples"
+
+# Parameterised service template; one instance per job name
+cat > /etc/systemd/system/claude-job@.service <<'EOF'
+[Unit]
+Description=Claude Code headless job (%i)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=claude-agent
+Group=claude-agent
+WorkingDirectory=/workspace/agent-jobs/%i
+EnvironmentFile=-/workspace/agent-jobs/%i/job.env
+# Pin OAuth credential path explicitly (cron doesn't load /etc/profile.d)
+Environment=CLAUDE_HOME=/home/claude-agent/.claude
+Environment=PATH=/home/claude-agent/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/bin/bash -c 'mkdir -p output && claude -p "$$(cat prompt.md)" --output-format json --allowed-tools "$$(cat allowed-tools.txt | tr "\n" "," | sed s/,$$//)" >> output/$$(date -u +%%Y%%m%%dT%%H%%M%%SZ).jsonl 2>&1'
+TimeoutStartSec=30min
+EOF
+
+# Example job 1: longhorn-health (every 6 hours)
+install -d -o claude-agent -g claude-agent /workspace/agent-jobs/longhorn-health/output
+cat > /workspace/agent-jobs/longhorn-health/prompt.md <<'EOF'
+You are an SRE assistant for a home-lab k3s cluster. Read the current
+Longhorn state via kubectl (your kubeconfig is read-only). Produce a
+concise health summary as Markdown: total volumes, attached vs detached,
+any volumes with degraded replicas, any nodes with disk pressure, any
+recent BackupTarget errors. Write the summary to
+/workspace/agent-jobs/longhorn-health/output/summary-$(date +%F).md.
+EOF
+cat > /workspace/agent-jobs/longhorn-health/allowed-tools.txt <<'EOF'
+Bash(kubectl get *)
+Bash(kubectl describe *)
+Bash(kubectl logs *)
+Bash(date *)
+Write
+EOF
+cat > /workspace/agent-jobs/longhorn-health/job.env <<'EOF'
+EOF
+cat > /etc/systemd/system/claude-job@longhorn-health.timer <<'EOF'
+[Unit]
+Description=Claude Code longhorn-health every 6h
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+Unit=claude-job@longhorn-health.service
+
+[Install]
+WantedBy=timers.target
+EOF
+chown -R claude-agent:claude-agent /workspace/agent-jobs/longhorn-health
+
+# Example job 2: nightly-repo-audit (02:00 daily). Disabled until you fill in
+# the repo list in prompt.md / job.env.
+install -d -o claude-agent -g claude-agent /workspace/agent-jobs/nightly-repo-audit/output
+cat > /workspace/agent-jobs/nightly-repo-audit/prompt.md <<'EOF'
+You are a code-review assistant. Read $REPO_LIST (one git URL per line, from
+job.env). For each repo, clone if missing under /workspace/agent-jobs/nightly-repo-audit/repos/,
+then 'git pull'. Run a focused review on commits since the last summary
+(stored at output/last-reviewed.txt): look for security issues, broken
+tests, TODOs without owners. Write findings to
+output/audit-$(date +%F).md.
+EOF
+cat > /workspace/agent-jobs/nightly-repo-audit/allowed-tools.txt <<'EOF'
+Bash(git *)
+Bash(date *)
+Bash(ls *)
+Read
+Write
+Grep
+EOF
+cat > /workspace/agent-jobs/nightly-repo-audit/job.env <<'EOF'
+# Populate REPO_LIST with newline-separated git URLs to enable this job.
+REPO_LIST="
+"
+EOF
+cat > /etc/systemd/system/claude-job@nightly-repo-audit.timer <<'EOF'
+[Unit]
+Description=Claude Code nightly repo audit at 02:00
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=claude-job@nightly-repo-audit.service
+
+[Install]
+WantedBy=timers.target
+EOF
+chown -R claude-agent:claude-agent /workspace/agent-jobs/nightly-repo-audit
+
+systemctl daemon-reload
+# Enable the timers but DON'T start nightly-repo-audit until the operator has
+# populated REPO_LIST. longhorn-health is safe to start (it just reads).
+systemctl enable --now claude-job@longhorn-health.timer
+systemctl enable claude-job@nightly-repo-audit.timer
+# Stop the nightly-repo-audit timer until configured
+systemctl stop  claude-job@nightly-repo-audit.timer || true
+
 echo "==> claude-worker bootstrap finished"
