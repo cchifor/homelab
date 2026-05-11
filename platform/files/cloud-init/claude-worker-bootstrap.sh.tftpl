@@ -37,13 +37,49 @@ if ! id claude-agent >/dev/null 2>&1; then
   chmod 600 /home/claude-agent/.ssh/authorized_keys
 fi
 
-# /workspace from /dev/sdb (the 48 G data disk)
+# /workspace mount — robust against /dev/sd{a,b} ordering.
+# The Proxmox cloud-init template's root disk can land at either sda or sdb
+# depending on attach order. We find the data disk by:
+#   1. Determining the root disk (the one currently mounted at /)
+#   2. Picking whichever other /dev/sd? disk is unformatted (or already
+#      carries our workspace label, for idempotent re-runs).
 if ! mountpoint -q /workspace; then
-  if ! blkid /dev/sdb >/dev/null 2>&1; then
-    mkfs.ext4 -L workspace /dev/sdb
+  ROOT_DEV=$(findmnt -no SOURCE / | sed 's/[0-9]*$//')   # e.g. /dev/sdb1 → /dev/sdb
+  DATA_DEV=""
+  # First pass: prefer a disk that already has the workspace label (re-run case)
+  for cand in /dev/sd?; do
+    [ "$cand" = "$ROOT_DEV" ] && continue
+    if blkid -t LABEL=workspace "$cand" >/dev/null 2>&1; then
+      DATA_DEV="$cand"
+      break
+    fi
+  done
+  # Second pass: any other disk that has no filesystem yet
+  if [ -z "$DATA_DEV" ]; then
+    for cand in /dev/sd?; do
+      [ "$cand" = "$ROOT_DEV" ] && continue
+      [ "$(blockdev --getsize64 "$cand" 2>/dev/null || echo 0)" -lt 1000000000 ] && continue   # skip < 1 GB
+      if ! blkid "$cand" >/dev/null 2>&1; then
+        DATA_DEV="$cand"
+        break
+      fi
+    done
+  fi
+  if [ -z "$DATA_DEV" ]; then
+    echo "==> ERROR: couldn't find a non-root data disk for /workspace (root=$ROOT_DEV)" >&2
+    lsblk
+    exit 1
+  fi
+  if ! blkid -t LABEL=workspace "$DATA_DEV" >/dev/null 2>&1; then
+    mkfs.ext4 -F -L workspace "$DATA_DEV"
   fi
   mkdir -p /workspace
-  echo "LABEL=workspace /workspace ext4 defaults,noatime 0 2" >> /etc/fstab
+  # Drop any stale/broken LABEL=workspace entry that an earlier failed run added,
+  # then write the canonical one. Use `nofail` so a future boot with the data
+  # disk missing doesn't hang systemd in emergency mode.
+  sed -i '\|LABEL=workspace /workspace|d' /etc/fstab
+  echo "LABEL=workspace /workspace ext4 defaults,nofail,noatime 0 2" >> /etc/fstab
+  systemctl daemon-reload
   mount /workspace
 fi
 # Group-writable, sgid so new files inherit group
