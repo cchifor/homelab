@@ -650,3 +650,98 @@ variable "local_token_path" {
   default     = "./.k3s_token"
   description = "Where the k3s join token is cached on the operator machine. Gitignored."
 }
+
+# =============================================================================
+# Claude Code worker VM
+# =============================================================================
+
+variable "claude_worker_enabled" {
+  type        = bool
+  default     = false
+  description = "Deploy the Claude Code worker VM. Off by default — flip to true (in tfvars or TF_VAR_claude_worker_enabled=true) when you want it."
+}
+
+variable "claude_worker_hostname" {
+  type    = string
+  default = "claude-worker"
+}
+
+variable "claude_worker_ip" {
+  type        = string
+  default     = "192.168.0.190"
+  description = "Static LAN IP."
+}
+
+variable "claude_worker_cores" {
+  type    = number
+  default = 4
+}
+
+variable "claude_worker_memory_mb" {
+  type    = number
+  default = 8192
+}
+
+variable "claude_worker_root_disk" {
+  type    = string
+  default = "16G"
+}
+
+variable "claude_worker_data_disk" {
+  type    = string
+  default = "48G"
+}
+
+variable "claude_worker_storage_pool" {
+  type    = string
+  default = "local-zfs"
+}
+
+variable "claude_worker_template_name" {
+  type        = string
+  description = "Pre-existing Debian 12 cloud-init template VM (created by prep-proxmox.sh)."
+  default     = "debian-12-cloudinit-template"
+}
+
+variable "claude_worker_ssh_user" {
+  type        = string
+  default     = "c4"
+  description = "Primary OS user (sudoer) on the worker."
+}
+
+variable "claude_worker_ssh_public_key" {
+  type        = string
+  description = "SSH public key contents (the value, not path) authorized for ssh_user. Set in tfvars or via TF_VAR_claude_worker_ssh_public_key."
+}
+
+variable "claude_worker_ssh_private_key_path" {
+  type        = string
+  default     = "~/.ssh/id_ed25519"
+  description = "Local path to the SSH private key matching claude_worker_ssh_public_key. Used by null_resource provisioners to drive the VM."
+}
+
+# Cloudflare Tunnel token for the worker's standalone cloudflared.
+# Create the tunnel in CF Zero Trust dashboard, paste the connector token
+# as TF_VAR_claude_worker_cf_tunnel_token. Two DNS routes
+# (worker-ssh.chifor.dev, claude.chifor.dev) and the CF Access policy
+# are configured in the dashboard out-of-band; see the module README.
+variable "claude_worker_cf_tunnel_token" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Cloudflare tunnel connector token. Leave empty to skip cloudflared install (LAN-only mode)."
+}
+
+# Restic + MinIO
+variable "claude_worker_restic_repo_url" {
+  type        = string
+  default     = "s3:http://192.168.0.186:9000/claude-worker-backup"
+  description = "Restic repository URL. Points at the NAS LXC's MinIO."
+}
+
+variable "claude_worker_restic_password" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Restic encryption password. Set via TF_VAR_claude_worker_restic_password. Operator MUST also save this in Vaultwarden — losing it makes the backup unrecoverable."
+}
