@@ -93,3 +93,18 @@ cp_ssh_private_key_path = "~/.ssh/id_ed25519"
 #   - Account:Cloudflare Tunnel:Edit  (NEW — add this for the operator)
 # Edit the existing token at https://dash.cloudflare.com/profile/api-tokens.
 # Leave cloudflare_account_id null to skip the tunnel operator (LAN-only operation).
+
+# =============================================================================
+# Claude Code worker VM (optional — flip claude_worker_enabled=true to deploy)
+# =============================================================================
+# Most fields have sane defaults in variables.tf; only override what you need.
+# Sensitive values (CF tunnel token, restic password, SSH pubkey) come from
+# env vars: TF_VAR_claude_worker_cf_tunnel_token, TF_VAR_claude_worker_restic_password,
+# TF_VAR_claude_worker_ssh_public_key.
+
+# claude_worker_enabled    = true
+# claude_worker_ip         = "192.168.0.190"
+# claude_worker_cores      = 4
+# claude_worker_memory_mb  = 8192
+# claude_worker_root_disk  = "16G"
+# claude_worker_data_disk  = "48G"
