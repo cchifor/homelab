@@ -669,7 +669,8 @@ resource "null_resource" "claude_worker_bootstrap" {
   triggers = {
     vm_id = module.claude_worker[0].vmid
     script_sha = sha256(templatefile("${path.module}/files/cloud-init/claude-worker-bootstrap.sh.tftpl", {
-      ssh_user = var.claude_worker_ssh_user
+      ssh_user        = var.claude_worker_ssh_user
+      cf_tunnel_token = var.claude_worker_cf_tunnel_token
     }))
   }
 
@@ -683,7 +684,8 @@ resource "null_resource" "claude_worker_bootstrap" {
 
   provisioner "file" {
     content = templatefile("${path.module}/files/cloud-init/claude-worker-bootstrap.sh.tftpl", {
-      ssh_user = var.claude_worker_ssh_user
+      ssh_user        = var.claude_worker_ssh_user
+      cf_tunnel_token = var.claude_worker_cf_tunnel_token
     })
     destination = "/tmp/claude-worker-bootstrap.sh"
   }

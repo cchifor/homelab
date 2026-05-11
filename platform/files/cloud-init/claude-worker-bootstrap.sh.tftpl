@@ -273,4 +273,27 @@ systemctl daemon-reload
 systemctl enable --now ttyd.service caddy.service
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
+# -----------------------------------------------------------------------------
+# Section 7: cloudflared (only if tunnel token provided)
+# -----------------------------------------------------------------------------
+echo "==> [7/?] cloudflared"
+
+CF_TUNNEL_TOKEN='${cf_tunnel_token}'
+
+if [ -z "$CF_TUNNEL_TOKEN" ]; then
+  echo "    (no CF tunnel token configured — skipping cloudflared install)"
+else
+  if ! command -v cloudflared >/dev/null 2>&1; then
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+      -o /etc/apt/keyrings/cloudflare-main.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+      > /etc/apt/sources.list.d/cloudflared.list
+    apt-get update -qq
+    apt-get install -y -qq cloudflared
+  fi
+  # cloudflared service install with the token
+  cloudflared service install "$CF_TUNNEL_TOKEN" 2>&1 | grep -v -i 'already installed' || true
+  systemctl enable --now cloudflared
+fi
+
 echo "==> claude-worker bootstrap finished"
