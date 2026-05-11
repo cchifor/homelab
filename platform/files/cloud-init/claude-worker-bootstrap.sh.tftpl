@@ -695,9 +695,130 @@ tmux new-window   -t "$SESSION:" -n cluster 'k9s --kubeconfig=$HOME/.kube/config
 tmux new-window   -t "$SESSION:" -n system  'htop'
 tmux new-window   -t "$SESSION:" -n jobs    'journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f'
 tmux new-window   -t "$SESSION:" -n docker  'while true; do clear; echo "── docker ps ──"; docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; echo; echo "── docker stats ──"; docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" 2>/dev/null; sleep 5; done'
+tmux new-window   -t "$SESSION:" -n cheats   'while true; do bat --paging=always --style=plain /usr/local/share/claude-cheatsheet.md || less /usr/local/share/claude-cheatsheet.md; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
 EOF
 chmod 0755 /usr/local/bin/claude-dashboard
+
+# Reference cheatsheet shown in the 6th dashboard window. Markdown so 'bat'
+# syntax-highlights it; less serves as the fallback pager if bat is missing.
+# Updates here propagate on the next apply (idempotent rewrite).
+install -d -m 0755 /usr/local/share
+cat > /usr/local/share/claude-cheatsheet.md <<'CHEATEOF'
+# Cheat Sheet — claude-worker
+
+## tmux (prefix = Ctrl-b, often shortened to "C-b")
+
+### Sessions
+    tmux ls                  list sessions
+    tmux a                   attach to default session
+    tmux a -t NAME           attach to specific session
+    C-b d                    detach (session keeps running)
+    C-b s                    pick session interactively
+    C-b $                    rename current session
+
+### Windows (tabs along the bottom)
+    C-b c                    new window
+    C-b 0..9                 jump to window N
+    C-b n / p                next / previous
+    C-b l                    toggle between last two
+    C-b w                    interactive picker
+    C-b ,                    rename window
+    C-b &                    kill window (asks to confirm)
+
+### Panes (splits within a window)
+    C-b |                    split horizontal  (custom)
+    C-b -                    split vertical    (custom)
+    C-b h / j / k / l        move between panes (custom; vim-style)
+    C-b H / J / K / L        resize 5 cells in direction (hold C-b)
+    C-b z                    zoom toggle (full-screen current pane)
+    C-b x                    kill pane (asks to confirm)
+    C-b space                cycle preset layouts
+
+### Copy mode (vi keys; mouse selection also works)
+    C-b [                    enter copy mode
+    v                        start selection
+    y                        yank + exit
+    C-b ]                    paste
+    /  or  ?                 search forward / backward
+    n / N                    repeat search forward / back
+    q                        exit copy mode
+
+### Other
+    C-b r                    reload ~/.tmux.conf (custom)
+    C-b ?                    list all key bindings
+
+## Linux essentials
+
+### Files
+    ls -lah                  long, all, human sizes
+    find . -name '*.go' -mtime -7      files matching glob, modified <7d
+    rg 'pattern'             ripgrep — fast recursive grep (installed)
+    grep -RIn 'pattern' .    BSD/GNU grep, recursive, line nums, skip binaries
+    fzf                      fuzzy finder (try: cd $(find . -type d | fzf))
+
+### Disk / IO
+    df -h                    filesystems
+    du -sh */                per-dir sizes in cwd
+    lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT
+    ncdu /workspace          interactive disk usage browser
+
+### Process / system
+    htop                     process tree, CPU/RAM (also dashboard win 3)
+    ps auxf                  full tree
+    systemctl status NAME    or:  is-active / is-enabled / restart / reload
+    journalctl -u NAME -f    follow a unit's log
+    journalctl --since '1h ago' --priority warning
+
+### Network
+    ss -tlnp                 listening TCP ports + which process
+    ip a                     show interfaces
+    curl -fsSL URL           silent fail-on-error; -v to debug
+    dig +short HOST          DNS lookup
+
+## Docker
+    docker ps                running containers
+    docker compose up -d     (in dir with compose.yaml)
+    docker compose down
+    docker logs -f NAME      follow logs
+    docker exec -it NAME bash    interactive shell in container
+    docker system prune -af  reclaim space (caution — removes unused)
+
+## kubectl (default kubeconfig is READ-ONLY)
+    kubectl get pods -A
+    kubectl describe pod NAME -n NS
+    kubectl logs -f NAME -n NS
+    kubectl get nodes
+    kubectl auth can-i ACTION RESOURCE     # check your RBAC
+
+    claude-grant-write                     # opt-in escalate to RW for THIS shell
+                                           # (sudo prompts; new shells are RO again)
+
+## Claude Code (running on this worker)
+    claude                          interactive REPL
+    claude -p 'PROMPT'              one-shot mode
+    claude-run JOBNAME              trigger a /workspace/agent-jobs/<name>
+    claude-dashboard                this 6-window dashboard session
+    systemctl list-timers claude-job@*.timer
+    journalctl -u claude-job@longhorn-health.service -n 100
+
+## Git
+    git status -sb
+    git log --oneline -10
+    git diff --stat
+    git diff main..HEAD
+    git stash / git stash pop
+    git switch -c BRANCH         (new branch)
+    git switch BRANCH            (existing)
+
+## This-machine paths
+    /workspace/c4/               your scratch space
+    /workspace/agent-jobs/<j>/   cron-job dirs (prompt.md, allowed-tools.txt)
+    /home/claude-agent/.claude/  shared OAuth credentials (c4 has read via ACL)
+    /etc/claude-agent/           root-only RW kubeconfig
+    /etc/restic/                 backup config (when enabled)
+CHEATEOF
+chmod 0644 /usr/local/share/claude-cheatsheet.md
 
 echo "==> claude-worker bootstrap finished"
