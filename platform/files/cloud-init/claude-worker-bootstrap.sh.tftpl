@@ -158,10 +158,11 @@ set -g pane-active-border-style "fg=#5fd7ff"
 set -g message-style            "fg=#000000,bg=#ffd700,bold"
 
 # Click on the left status segment (hostname / session name) → open a
-# pure session picker. choose-session (not choose-tree) so clicking a
-# session switches directly to it instead of expanding it into a window
-# sub-tree — windows are already clickable in the status bar to the right.
-bind -n MouseDown1StatusLeft choose-session -Z
+# session picker. choose-tree's default-on-Enter behavior in tmux 3.3a
+# is "expand into windows" when run with -s; passing an explicit template
+# ('switch-client -t %%') forces direct session switch instead. Windows
+# remain clickable in the status bar to the right.
+bind -n MouseDown1StatusLeft choose-tree -Zs "switch-client -t '%%'"
 EOF
 for u in ${ssh_user} claude-agent; do
   cp /etc/skel/.tmux.conf /home/$u/.tmux.conf
