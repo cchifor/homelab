@@ -37,6 +37,45 @@ roleRef:
   kind: ClusterRole
   name: view
 ---
+# Stock `view` is namespaced-only — does not include cluster-scoped reads.
+# Add a custom ClusterRole granting get/list/watch on the cluster-scoped
+# resources the agent needs for "is the cluster healthy?" prompts and the
+# bundled longhorn-health timer. Still strictly read-only; still no secrets
+# beyond the SA's own.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: claude-agent-cluster-read
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments", "csinodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: claude-agent-ro-cluster-read
+subjects:
+  - kind: ServiceAccount
+    name: claude-agent-ro
+    namespace: claude-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: claude-agent-cluster-read
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
