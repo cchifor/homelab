@@ -215,4 +215,62 @@ for u in ${ssh_user} claude-agent; do
   install -d -m 0700 -o "$u" -g "$u" /home/$u/.kube
 done
 
+# -----------------------------------------------------------------------------
+# Section 6: web terminal (ttyd) + Caddy reverse proxy for LAN HTTPS
+# -----------------------------------------------------------------------------
+echo "==> [6/?] ttyd + Caddy"
+
+TTYD_VER="1.7.7"
+if [ ! -x /usr/local/bin/ttyd ] || ! /usr/local/bin/ttyd --version 2>&1 | grep -q "$TTYD_VER"; then
+  curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/$TTYD_VER/ttyd.x86_64" \
+    -o /usr/local/bin/ttyd
+  chmod +x /usr/local/bin/ttyd
+fi
+
+# systemd unit — runs as claude-agent, spawns tmux attach into the shared session.
+cat > /etc/systemd/system/ttyd.service <<'EOF'
+[Unit]
+Description=ttyd web terminal (drops to claude-agent, attaches shared tmux)
+After=network.target
+
+[Service]
+Type=simple
+User=claude-agent
+Group=claude-agent
+ExecStart=/usr/local/bin/ttyd -i 127.0.0.1 -p 7681 -t titleFixed='claude-worker' tmux new-session -A -s main
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Caddy via apt (cloudsmith repo)
+if ! command -v caddy >/dev/null 2>&1; then
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor -o /etc/apt/keyrings/caddy-stable.gpg
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+    | sed 's|/usr/share/keyrings|/etc/apt/keyrings|; s|caddy-stable-archive-keyring|caddy-stable|' \
+    > /etc/apt/sources.list.d/caddy-stable.list
+  apt-get update -qq
+  apt-get install -y -qq caddy
+fi
+
+cat > /etc/caddy/Caddyfile <<'EOF'
+# Caddy in front of ttyd. tls internal = self-signed via Caddy's local CA;
+# browser will show a "not secure" warning on first visit (trust-on-first-use).
+# Public access goes through CF Tunnel + CF Access at claude.chifor.dev with a
+# properly-trusted cert from Cloudflare's edge.
+:443 {
+  tls internal
+  reverse_proxy 127.0.0.1:7681
+}
+:80 {
+  redir https://{host}{uri} permanent
+}
+EOF
+
+systemctl daemon-reload
+systemctl enable --now ttyd.service caddy.service
+systemctl reload caddy 2>/dev/null || systemctl restart caddy
+
 echo "==> claude-worker bootstrap finished"
