@@ -153,4 +153,27 @@ chmod 750 /home/claude-agent /home/claude-agent/.claude
 setfacl -R -m g:${ssh_user}:rx /home/claude-agent/.claude
 setfacl -R -d -m g:${ssh_user}:rx /home/claude-agent/.claude
 
+# -----------------------------------------------------------------------------
+# Section 4: language toolchains (Python, Go, Rust)
+# -----------------------------------------------------------------------------
+echo "==> [4/?] Python + Go + Rust"
+
+apt-get install -y -qq python3 python3-venv python3-pip pipx golang-go
+
+# Rust to /opt/rust (shared, both users PATH'd to /opt/rust/cargo/bin)
+if [ ! -x /opt/rust/cargo/bin/cargo ]; then
+  mkdir -p /opt/rust
+  export RUSTUP_HOME=/opt/rust/rustup
+  export CARGO_HOME=/opt/rust/cargo
+  curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable
+  chmod -R go+rX /opt/rust
+fi
+
+cat > /etc/profile.d/02-rust-path.sh <<'EOF'
+export RUSTUP_HOME=/opt/rust/rustup
+export CARGO_HOME=/opt/rust/cargo
+export PATH="$CARGO_HOME/bin:$PATH"
+EOF
+chmod +x /etc/profile.d/02-rust-path.sh
+
 echo "==> claude-worker bootstrap finished"
