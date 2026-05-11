@@ -673,6 +673,7 @@ resource "null_resource" "claude_worker_bootstrap" {
       cf_tunnel_token = var.claude_worker_cf_tunnel_token
       restic_repo_url = var.claude_worker_restic_repo_url
       restic_password = var.claude_worker_restic_password
+      c4_password     = var.claude_worker_c4_password
     }))
   }
 
@@ -690,6 +691,7 @@ resource "null_resource" "claude_worker_bootstrap" {
       cf_tunnel_token = var.claude_worker_cf_tunnel_token
       restic_repo_url = var.claude_worker_restic_repo_url
       restic_password = var.claude_worker_restic_password
+      c4_password     = var.claude_worker_c4_password
     })
     destination = "/tmp/claude-worker-bootstrap.sh"
   }

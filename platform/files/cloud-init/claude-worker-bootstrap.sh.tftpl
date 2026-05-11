@@ -587,4 +587,36 @@ ${ssh_user} ALL=(root) NOPASSWD: /bin/systemctl start claude-job@*.service
 EOF
 chmod 0440 /etc/sudoers.d/claude-job-trigger
 
+# -----------------------------------------------------------------------------
+# Section 13: SSH password auth for c4 (optional, controlled by c4_password var)
+# -----------------------------------------------------------------------------
+# Default sshd_config on Debian cloud images is pubkey-only. That's the
+# right posture for headless agents, but blocks clients like KiTTY whose
+# default profile doesn't auto-load ~/.ssh/id_ed25519. When the operator
+# sets TF_VAR_claude_worker_c4_password, we set the c4 password and enable
+# PasswordAuthentication so those clients work alongside pubkey.
+echo "==> [13/?] ssh password auth (optional)"
+
+C4_PASSWORD='${c4_password}'
+
+if [ -n "$C4_PASSWORD" ]; then
+  # chpasswd is idempotent — running with the same plaintext just re-hashes
+  echo "c4:$C4_PASSWORD" | chpasswd
+  # Enable PasswordAuthentication in the main config + any drop-ins
+  sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  for f in /etc/ssh/sshd_config.d/*.conf; do
+    [ -f "$f" ] && sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' "$f"
+  done
+  # Make sure at least one config layer has the explicit line (drop-ins may
+  # not have the directive at all). Write a small standalone drop-in.
+  cat > /etc/ssh/sshd_config.d/10-claude-worker-passwordauth.conf <<EOF
+PasswordAuthentication yes
+EOF
+  systemctl reload ssh
+  echo "    PasswordAuthentication enabled for c4"
+else
+  # Operator hasn't opted in — leave the cloud-init pubkey-only default alone.
+  echo "    (no c4 password configured — keeping pubkey-only sshd)"
+fi
+
 echo "==> claude-worker bootstrap finished"

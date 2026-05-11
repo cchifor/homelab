@@ -746,3 +746,16 @@ variable "claude_worker_restic_password" {
   sensitive   = true
   description = "Restic encryption password. Set via TF_VAR_claude_worker_restic_password. Operator MUST also save this in Vaultwarden — losing it makes the backup unrecoverable."
 }
+
+# SSH password for the c4 user. When set, the bootstrap sets the password and
+# enables sshd PasswordAuthentication so non-key-aware clients (KiTTY default,
+# phones, friend's machine) can log in. Leave empty (the default) to keep the
+# pubkey-only posture. Set via TF_VAR_claude_worker_c4_password (out-of-band
+# secret, NOT in tfvars). Save the value in Vaultwarden — terraform doesn't
+# read the system back so a lost password requires a reset on the VM.
+variable "claude_worker_c4_password" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Optional password for the c4 user; enables sshd PasswordAuthentication when non-empty."
+}
