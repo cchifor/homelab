@@ -227,12 +227,17 @@ if ! command -v kubectl >/dev/null 2>&1; then
   apt-get install -y -qq kubectl
 fi
 
-if ! command -v helm >/dev/null 2>&1; then
-  curl -fsSL https://baltocdn.com/helm/signing.asc | gpg --dearmor -o /etc/apt/keyrings/helm.gpg
-  echo "deb [signed-by=/etc/apt/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" \
-    > /etc/apt/sources.list.d/helm-stable-debian.list
-  apt-get update -qq
-  apt-get install -y -qq helm
+# helm — direct tarball from get.helm.sh (avoids baltocdn.com which is
+# unreachable from some networks, including this homelab's egress).
+# Clean up any leftover baltocdn apt config from a previous failed run.
+rm -f /etc/apt/keyrings/helm.gpg /etc/apt/sources.list.d/helm-stable-debian.list
+HELM_VER="v3.16.3"
+if [ ! -x /usr/local/bin/helm ] || ! /usr/local/bin/helm version --short 2>/dev/null | grep -q "$HELM_VER"; then
+  rm -rf /tmp/helm-extract && mkdir -p /tmp/helm-extract
+  curl -fsSL "https://get.helm.sh/helm-$${HELM_VER}-linux-amd64.tar.gz" \
+    | tar -xz -C /tmp/helm-extract
+  install -m 0755 /tmp/helm-extract/linux-amd64/helm /usr/local/bin/helm
+  rm -rf /tmp/helm-extract
 fi
 
 # k9s — Debian doesn't have it; install from upstream release tarball
