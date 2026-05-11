@@ -690,10 +690,14 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exec tmux attach -t "$SESSION"
 fi
 
+# NB: `home` is a plain shell so typing `exit` closes it like any terminal.
+# Every other long-lived window is wrapped in `while true; do CMD; sleep 0.5; done`
+# so a quit in k9s/htop/journalctl rebuilds the view instead of killing the
+# window (and shifting all the others by 1 because of renumber-windows on).
 tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
-tmux new-window   -t "$SESSION:" -n cluster 'k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A)'
-tmux new-window   -t "$SESSION:" -n system  'htop'
-tmux new-window   -t "$SESSION:" -n jobs    'journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f'
+tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n docker  'while true; do clear; echo "── docker ps ──"; docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; echo; echo "── docker stats ──"; docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" 2>/dev/null; sleep 5; done'
 tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
