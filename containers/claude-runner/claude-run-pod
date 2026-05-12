@@ -40,5 +40,6 @@ echo "[claude-run-pod] starting job, output -> $RUN_DIR" | tee "$RUN_DIR/meta.lo
 exec claude -p "$PROMPT" \
   --allowed-tools "$ALLOWED_TOOLS" \
   --output-format stream-json \
+  --verbose \
   2> >(tee -a "$RUN_DIR/stderr.log" >&2) \
   | tee "$RUN_DIR/transcript.jsonl"
