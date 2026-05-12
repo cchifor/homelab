@@ -1103,3 +1103,74 @@ Two execution options:
 2. **Inline Execution** — Execute tasks in this session using executing-plans, batch execution with checkpoints.
 
 Which approach?
+
+---
+
+## Build outcome — what actually shipped (2026-05-12)
+
+The pilot is live in the `home-lab` k3s cluster (`helm install longhorn-health …`,
+revision 2). Several design points changed between this plan and the final
+commits on the `worktree-quiet-strolling-oasis` branch; future readers should
+treat the git log as authoritative on these:
+
+**1. Image distribution path is not Gitea-push.**
+The plan called for `docker buildx build --push` to `gitea.chifor.dev/c4/claude-runner`.
+In practice, Gitea Docker auth was not set up on either the workstation or the
+VM. Workflow used instead: arm64 build on the VM (under `qemu-user-static`),
+output as a docker tar via `--output type=docker,dest=...`, then for each Radxa
+`ssh c4@VM cat /tmp/…-arm64.tar | ssh c4@RADXA sudo k3s ctr images import -`.
+The image tag stays `gitea.chifor.dev/c4/claude-runner:latest`; with
+`imagePullPolicy: IfNotPresent` the pod never tries to pull from the registry.
+`build.sh` in the repo still encodes the push path — works once Gitea Docker
+auth is set up.
+
+**2. Auth: `claude setup-token` env var, not `.credentials.json` file mount.**
+The plan's file-mount design fell over in production: OAuth tokens from
+`claude auth login` rotate roughly every 30 minutes while the interactive
+`claude` session is in use, so the cluster-side Secret snapshot quickly went
+stale and scheduled pods 401'd. Final design (commit `3965e5b`): run
+`claude setup-token` once to mint a long-lived (~1y) token, store under key
+`CLAUDE_CODE_OAUTH_TOKEN` in `secret/claude-oauth`, project into the pod
+as an env var of the same name. No file mount, no rotation, no watcher.
+Token renewal in ~1y is a one-liner with `kubectl create secret … --dry-run …
+| kubectl apply -f -`; no chart re-render needed.
+
+**3. Dockerfile fixes that plan-time reviewers missed.**
+Four runtime/build problems surfaced during the actual build/run and got
+their own commits:
+- `${TARGETARCH/amd64/x64}` is bash-only; Dockerfile RUN uses `/bin/sh`
+  (dash) — replaced with a POSIX `case` (`0a5d225`).
+- `debian:12-slim` lacks `xz-utils` (needed by `tar -xJ` for Node tarball)
+  (`ec62b3c`).
+- `claude -p --output-format=stream-json` requires `--verbose` (`ce70fef`).
+- `/home/claude-agent/.claude/` must be pre-created in the image; otherwise
+  the chart's subPath mount of `settings.json` makes kubelet create the
+  parent dir as root, locking UID 1000 out of writing the credential
+  symlink (`b8d3d73`).
+
+**4. CronJob template additions during code review.**
+- `securityContext.runAsUser/runAsGroup/fsGroup: 1000` is required so the
+  Longhorn PVC mount is writable by the runner user.
+- The OAuth Secret originally had `defaultMode: 0400` — too restrictive once
+  `fsGroup: 1000` chowns it to `root:1000`. Fixed to `0440` (`911eee9`).
+  (Obsolete after item 2: the file mount itself was removed.)
+
+**5. VM systemd timer for `longhorn-health` was enabled+failing.**
+The claude-worker VM had `claude-job@longhorn-health.timer` enabled but
+silently failing (no `claude` binary at the time). Task 22 disabled it.
+A separate `claude-job@nightly-repo-audit.timer` remains enabled and likely
+silently-failing — not in pilot scope; flag for future cleanup.
+
+**6. Adjacent VM work done during the migration.**
+- `claude` CLI installed on the VM for both `c4` and `claude-agent` users.
+- `claude-agent`'s `.bash_profile` added so login shells inherit the
+  `~/.npm-global/bin` PATH from `.bashrc`.
+- `inotify-tools` installed (it would have backed the OAuth watcher in
+  fallback path B; unused after switching to env-var auth — harmless).
+
+**Files added beyond the original plan:**
+- `apps/charts/claude-jobs/README.md` (chart-level operator runbook)
+- `apps/charts/claude-jobs/preflight.sh` (pre-install validation)
+- `apps/charts/claude-jobs/values.yaml` gained `storage.keepOnUninstall`
+  (opt-in PVC retention for future stateful jobs).
+
