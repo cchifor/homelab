@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "claude-jobs.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "claude-jobs.labels" . | nindent 4 }}
+spec:
+  schedule: "{{ .Values.job.schedule }}"
+  concurrencyPolicy: {{ .Values.job.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.job.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.job.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.job.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.job.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels: {{- include "claude-jobs.labels" . | nindent 12 }}
+        spec:
+          serviceAccountName: {{ .Values.serviceAccount }}
+          restartPolicy: Never
+          nodeSelector:
+            {{- toYaml .Values.nodeSelector | nindent 12 }}
+          {{- with .Values.tolerations }}
+          tolerations: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: claude
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef: { fieldPath: spec.nodeName }
+              volumeMounts:
+                - { name: workspace,        mountPath: /workspace }
+                - { name: job-config,       mountPath: /jobs, readOnly: true }
+                - { name: oauth,            mountPath: /var/run/claude, readOnly: true }
+                - { name: baseline-settings, mountPath: /home/claude-agent/.claude/settings.json, subPath: settings.json, readOnly: true }
+          volumes:
+            - name: workspace
+              persistentVolumeClaim:
+                claimName: {{ include "claude-jobs.fullname" . }}-workspace
+            - name: job-config
+              configMap:
+                name: {{ include "claude-jobs.fullname" . }}
+            - name: oauth
+              secret:
+                secretName: {{ .Values.oauth.secretName }}
+                defaultMode: 0440
+                items:
+                  - key: {{ .Values.oauth.keyName }}
+                    path: credentials.json
+            - name: baseline-settings
+              configMap:
+                name: {{ include "claude-jobs.fullname" . }}-settings
