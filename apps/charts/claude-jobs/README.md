@@ -30,6 +30,27 @@ Full design and operator runbook: `docs/superpowers/plans/2026-05-12-claude-radx
    ./containers/claude-runner/build.sh   # multi-arch, run on the VM
    ```
 
+## OAuth credential rotation (current workaround)
+
+The OAuth token in `secret/claude-oauth` is the workstation's `.credentials.json`.
+Anthropic rotates that token roughly every 30 minutes whenever the interactive
+`claude` session is in use — so the Secret goes stale and the next scheduled
+run fails with `API Error: 401 Invalid authentication credentials`.
+
+Stopgap: refresh the Secret from the current local credential.
+
+```bash
+./apps/charts/claude-jobs/refresh-secret.sh
+```
+
+A long-term fix replaces the workstation-sourced credential with one of:
+- A dedicated `claude login` on the claude-worker VM (the original plan's design;
+  requires installing `claude` on the VM first — currently not installed).
+- An Anthropic API key set as `ANTHROPIC_API_KEY` env var in the runner image
+  (no OAuth rotation, different billing model).
+- A workstation `cron` / Windows scheduled task that runs `refresh-secret.sh`
+  every 15-20 minutes.
+
 ## Preflight check
 
 Before the first `helm install`, run the preflight script to verify all
