@@ -26,8 +26,11 @@ storage:
   keepOnUninstall: false
 
 oauth:
+  # Long-lived `claude setup-token` token, stored in the named Secret under the
+  # given key, projected into the pod as the CLAUDE_CODE_OAUTH_TOKEN env var.
+  # No file mount, no rotation, no watcher — token is valid for ~1 year.
   secretName: claude-oauth
-  keyName: credentials.json
+  tokenKey: CLAUDE_CODE_OAUTH_TOKEN
 
 # Baseline settings.json content (deny-list). Rendered into its own
 # ConfigMap and mounted at /home/claude-agent/.claude/settings.json.

@@ -39,10 +39,14 @@ spec:
                 - name: NODE_NAME
                   valueFrom:
                     fieldRef: { fieldPath: spec.nodeName }
+                - name: CLAUDE_CODE_OAUTH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.oauth.secretName }}
+                      key: {{ .Values.oauth.tokenKey }}
               volumeMounts:
                 - { name: workspace,        mountPath: /workspace }
                 - { name: job-config,       mountPath: /jobs, readOnly: true }
-                - { name: oauth,            mountPath: /var/run/claude, readOnly: true }
                 - { name: baseline-settings, mountPath: /home/claude-agent/.claude/settings.json, subPath: settings.json, readOnly: true }
           volumes:
             - name: workspace
@@ -51,13 +55,6 @@ spec:
             - name: job-config
               configMap:
                 name: {{ include "claude-jobs.fullname" . }}
-            - name: oauth
-              secret:
-                secretName: {{ .Values.oauth.secretName }}
-                defaultMode: 0440
-                items:
-                  - key: {{ .Values.oauth.keyName }}
-                    path: credentials.json
             - name: baseline-settings
               configMap:
                 name: {{ include "claude-jobs.fullname" . }}-settings
