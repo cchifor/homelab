@@ -4,6 +4,10 @@ metadata:
   name: {{ include "claude-jobs.fullname" . }}-workspace
   namespace: {{ .Values.namespace }}
   labels: {{- include "claude-jobs.labels" . | nindent 4 }}
+  {{- if .Values.storage.keepOnUninstall }}
+  annotations:
+    "helm.sh/resource-policy": keep
+  {{- end }}
 spec:
   accessModes: ["ReadWriteOnce"]
   storageClassName: {{ .Values.storage.storageClass }}

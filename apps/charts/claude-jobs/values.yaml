@@ -19,6 +19,11 @@ affinity: {}
 storage:
   storageClass: longhorn
   size: 5Gi
+  # If true, the workspace PVC is annotated with helm.sh/resource-policy=keep,
+  # so `helm uninstall` leaves it (and its run transcripts) behind. Default
+  # false matches the original behavior for read-only pilot jobs where losing
+  # run logs is acceptable. Set true for jobs whose workspace state matters.
+  keepOnUninstall: false
 
 oauth:
   secretName: claude-oauth
