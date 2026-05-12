@@ -10,7 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/claude-agent
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git gnupg jq tini procps \
+      ca-certificates curl git gnupg jq tini procps xz-utils \
       python3 python3-pip python3-venv \
       tmux less vim-tiny \
       restic \
