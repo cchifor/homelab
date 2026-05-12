@@ -19,6 +19,10 @@ spec:
         spec:
           serviceAccountName: {{ .Values.serviceAccount }}
           restartPolicy: Never
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
           nodeSelector:
             {{- toYaml .Values.nodeSelector | nindent 12 }}
           {{- with .Values.tolerations }}
