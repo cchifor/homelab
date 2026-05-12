@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-custom-css
+  namespace: homepage
+data:
+  custom.css: |
+    /* Windows 11 File Explorer dark theme for homepage.
+       Mounted at /app/config/custom.css by the homepage chart's
+       persistence.custom-css entry — homepage auto-loads it. */
+
+    :root {
+      --win-bg:              #1f1f1f;
+      --win-surface:         rgba(255, 255, 255, 0.055);
+      --win-surface-hover:   rgba(255, 255, 255, 0.11);
+      --win-border:          rgba(255, 255, 255, 0.14);
+      --win-border-strong:   rgba(255, 255, 255, 0.24);
+      --win-accent:          #4cc2ff;
+      --win-text:            rgba(255, 255, 255, 0.94);
+      --win-text-secondary:  rgba(255, 255, 255, 0.72);
+      --win-shadow-hover:    0 4px 14px rgba(0, 0, 0, 0.45);
+    }
+
+    html, body {
+      background: var(--win-bg) !important;
+      color: var(--win-text) !important;
+      font-family: "Segoe UI Variable Text", "Segoe UI",
+                   "Inter", system-ui, -apple-system, sans-serif !important;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Section headers (Apps, Platform, Admin, ...) */
+    #information-widgets h1,
+    #information-widgets h2,
+    .services-group > h2,
+    .bookmarks > h2,
+    h1.font-bold,
+    h2.font-bold {
+      color: var(--win-text) !important;
+      font-weight: 600 !important;
+      letter-spacing: 0;
+    }
+
+    /* ---------- Cards: services + bookmarks ---------- */
+    /* Reach the entire clickable tile, not just the inner text wrapper. */
+    .services-group .service > a,
+    .services-group .service > div,
+    .service-card,
+    .bookmark-text {
+      background: var(--win-surface) !important;
+      border: 1px solid var(--win-border) !important;
+      border-radius: 8px !important;
+      transition: background 120ms ease,
+                  border-color 120ms ease,
+                  box-shadow 120ms ease,
+                  transform 120ms ease !important;
+    }
+    .services-group .service > a:hover,
+    .services-group .service > div:hover,
+    .service-card:hover,
+    .bookmark-text:hover {
+      background: var(--win-surface-hover) !important;
+      border-color: var(--win-border-strong) !important;
+      box-shadow: var(--win-shadow-hover) !important;
+    }
+
+    /* Search input — keep homepage's default sizing, just theme it */
+    input[type="text"],
+    input[type="search"] {
+      background: var(--win-surface) !important;
+      border: 1px solid var(--win-border) !important;
+      border-radius: 8px !important;
+      color: var(--win-text) !important;
+    }
+    input::placeholder { color: var(--win-text-secondary) !important; }
+    input:focus {
+      outline: 2px solid var(--win-accent) !important;
+      outline-offset: 0;
+      border-color: var(--win-accent) !important;
+    }
+
+    /* ---------- Misc ---------- */
+    a:focus-visible,
+    button:focus-visible {
+      outline: 2px solid var(--win-accent) !important;
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    /* Scrollbar — thin, translucent thumb, no track */
+    ::-webkit-scrollbar { width: 12px; height: 12px; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      border: 3px solid var(--win-bg);
+    }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+    ::-webkit-scrollbar-track { background: transparent; }

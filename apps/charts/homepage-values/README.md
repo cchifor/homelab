@@ -13,11 +13,28 @@
 ## Install
 
 ```bash
+# Namespace first so the custom-css ConfigMap can be applied into it
+kubectl create namespace homepage --dry-run=client -o yaml | kubectl apply -f -
+
+# Windows 11 dark theme overlay (custom.css mounted via persistence.custom-css)
+kubectl apply -f apps/manifests/homepage-custom-css/configmap.yaml
+
 helm upgrade --install homepage jameswynn/homepage \
   --version 2.1.0 \
   -n homepage --create-namespace \
   -f apps/charts/homepage-values/values.yaml \
   --timeout 5m
+```
+
+## Windows 11 dark theme
+
+The dashboard uses homepage's built-in `theme: dark` + `color: zinc` (closest neutral to Win11's warm-dark grays) with a custom CSS overlay that matches the Win11 File Explorer aesthetic — translucent surfaces, 8px rounded cards, Segoe UI Variable, `#4cc2ff` accent, subtle white-alpha borders.
+
+CSS lives in `apps/manifests/homepage-custom-css/configmap.yaml`. Edits there require re-applying the ConfigMap and restarting the pod (homepage reads `custom.css` once at startup):
+
+```bash
+kubectl apply -f apps/manifests/homepage-custom-css/configmap.yaml
+kubectl -n homepage rollout restart deploy/homepage
 ```
 
 ## Required: HOMEPAGE_ALLOWED_HOSTS

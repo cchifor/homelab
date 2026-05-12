@@ -156,6 +156,12 @@ config:
 
   settings:
     title: chifor homelab
+    # Windows 11 dark theme — zinc is the neutral palette closest to Win11's
+    # warm-dark grays. Pixel-faithful overrides come from custom.css (mounted
+    # via persistence.custom-css below; ConfigMap lives in
+    # apps/manifests/homepage-custom-css).
+    theme: dark
+    color: zinc
     layout:
       Apps:
         style: row
@@ -167,6 +173,22 @@ config:
 
   kubernetes:
     mode: cluster
+
+# === Windows 11 dark theme overlay ===
+# Mount the homepage-custom-css ConfigMap (apps/manifests/homepage-custom-css/
+# configmap.yaml) at /app/config/custom.css. Homepage auto-loads any
+# custom.css in its config dir on startup. Uses the same chart-internal
+# pattern the chart itself uses to mount its main config ConfigMap.
+persistence:
+  custom-css:
+    enabled: true
+    type: custom
+    volumeSpec:
+      configMap:
+        name: homepage-custom-css
+    subPath:
+      - path: custom.css
+        mountPath: /app/config/custom.css
 
 # === Resource limits ===
 resources:
