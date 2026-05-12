@@ -1,0 +1,23 @@
+serviceAccount: claude-agent-ro
+
+storage:
+  size: 2Gi
+
+job:
+  name: longhorn-health
+  schedule: "17 */6 * * *"
+  activeDeadlineSeconds: 900
+  maxTurns: 20
+  allowedTools: "Read,Grep,Bash(kubectl get:*),Bash(kubectl describe:*),Bash(kubectl logs:*)"
+  prompt: |
+    You are a homelab SRE assistant. Inspect Longhorn health across the cluster.
+
+    Use kubectl against the in-pod ServiceAccount (claude-agent-ro). Do NOT
+    attempt to mutate anything. Report:
+      1. Volume count: total, healthy, degraded, faulted.
+      2. Any volume in non-healthy state — name, replicas, last-state-change.
+      3. Any Longhorn manager/engine pod not Running.
+      4. Disk capacity per node — flag any node >80% used.
+
+    Be concise. End with a single-line SUMMARY: line that says either
+    "OK" or "ATTENTION: <short reason>".
