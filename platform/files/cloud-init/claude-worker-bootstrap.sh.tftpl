@@ -198,6 +198,65 @@ usermod -aG docker claude-agent || true
 systemctl enable --now docker
 
 # -----------------------------------------------------------------------------
+# Section 2.5: Relocate Docker + containerd state to /workspace, add log rotation
+# Root disk is 16 GB; buildx snapshots and overlayfs layers can easily exceed
+# that, while /workspace (48 GB) sits mostly empty. Bind-mount via fstab so it
+# survives reboot. Idempotent — once the binds are active, re-runs are a no-op.
+# -----------------------------------------------------------------------------
+echo "==> [2.5/?] relocate /var/lib/{docker,containerd} to /workspace + log rotation"
+
+mountpoint -q /workspace || { echo "ERROR: /workspace not mounted" >&2; exit 1; }
+
+if mountpoint -q /var/lib/docker && mountpoint -q /var/lib/containerd; then
+  echo "    (docker + containerd already on /workspace binds)"
+else
+  # Free obvious cache first so the cross-FS move has slack on the tight root.
+  if systemctl is-active --quiet docker; then
+    docker buildx prune -af 2>/dev/null || true
+    systemctl stop docker.socket docker containerd
+  fi
+
+  relocate_to_workspace() {
+    local src="$1"          # e.g. /var/lib/docker
+    local dst="/workspace/$2"
+
+    mountpoint -q "$src" && return 0
+    mkdir -p "$dst" "$src"
+
+    # First run only: move existing data across. cp -a preserves owner/perms/xattrs.
+    if [ -n "$(find "$src" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+      cp -a "$src"/. "$dst"/
+      find "$src" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    fi
+
+    grep -qE "^[^#]*[[:space:]]$src[[:space:]]" /etc/fstab \
+      || echo "$dst $src none bind,nofail 0 0" >> /etc/fstab
+    systemctl daemon-reload
+    mount "$src"
+  }
+
+  relocate_to_workspace /var/lib/docker      var-lib-docker
+  relocate_to_workspace /var/lib/containerd  var-lib-containerd
+fi
+
+# Log rotation for new container logs. Existing files aren't rotated
+# retroactively — they age out as containers are recreated.
+install -d -m 0755 /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+
+# Restart docker so daemon.json + the relocated data-root take effect.
+# Section 2 already enabled the unit, so we just need it active.
+systemctl is-active --quiet docker || systemctl start docker
+
+# -----------------------------------------------------------------------------
 # Section 3: Node.js 20 LTS + Claude Code CLI (per-user, no sudo npm)
 # -----------------------------------------------------------------------------
 echo "==> [3/?] Node.js + Claude Code"
