@@ -51,8 +51,14 @@ RUN curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linu
     && chmod 0755 /usr/local/bin/yq
 
 # Claude Code CLI
-RUN npm install -g @anthropic-ai/claude-code \
-    && claude --version
+# Run install/version-check with HOME=/tmp and from a known working dir.
+# The claude-agent user doesn't exist yet, so /home/claude-agent isn't usable
+# yet, and `claude` is known to scan the working directory on startup — running
+# from `/` as root has triggered OOM in some environments. See
+# anthropics/claude-code#22536.
+WORKDIR /tmp
+RUN HOME=/tmp npm install -g @anthropic-ai/claude-code \
+    && HOME=/tmp claude --version
 
 # Non-root user (uid 1000) matches the VM's claude-agent
 RUN groupadd -g 1000 claude-agent \

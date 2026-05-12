@@ -14,7 +14,9 @@ if [[ -f "$JOBS_DIR/job.env" ]]; then
   set -a; . "$JOBS_DIR/job.env"; set +a
 fi
 
-ALLOWED_TOOLS=$(tr -d '\n' < "$JOBS_DIR/allowed-tools.txt")
+# Accept either comma-separated on one line, or one tool per line.
+# Convert newlines to commas, then strip any trailing commas.
+ALLOWED_TOOLS=$(tr '\n' ',' < "$JOBS_DIR/allowed-tools.txt" | sed 's/,*$//')
 PROMPT=$(cat "$JOBS_DIR/prompt.md")
 
 TS=$(date -u +%Y%m%dT%H%M%SZ)
