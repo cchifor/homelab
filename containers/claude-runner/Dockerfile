@@ -68,10 +68,14 @@ WORKDIR /tmp
 RUN HOME=/tmp npm install -g @anthropic-ai/claude-code \
     && HOME=/tmp claude --version
 
-# Non-root user (uid 1000) matches the VM's claude-agent
+# Non-root user (uid 1000) matches the VM's claude-agent.
+# /home/claude-agent/.claude is pre-created so that the chart's `subPath` mount
+# of baseline-settings/settings.json doesn't trigger kubelet to create the
+# parent dir as root (which would leave it un-writable to UID 1000, breaking
+# the credential-symlink step in claude-run-pod).
 RUN groupadd -g 1000 claude-agent \
     && useradd -m -u 1000 -g 1000 -s /bin/bash claude-agent \
-    && mkdir -p /workspace /jobs \
+    && mkdir -p /workspace /jobs /home/claude-agent/.claude \
     && chown -R claude-agent:claude-agent /workspace /home/claude-agent
 
 COPY claude-run-pod /usr/local/bin/claude-run-pod
