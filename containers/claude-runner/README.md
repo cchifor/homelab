@@ -10,13 +10,11 @@ via systemd timers.
 
 Run on the claude-worker VM (amd64 host with Docker + qemu-user-static):
 
-````markdown
 ```bash
 sudo apt install -y qemu-user-static binfmt-support  # one-time
 docker login gitea.chifor.dev                         # one-time
 ./build.sh
 ```
-````
 
 This produces `gitea.chifor.dev/c4/claude-runner:<date>-<sha>` and `:latest`,
 multi-arch (`linux/amd64,linux/arm64`).
@@ -25,7 +23,9 @@ multi-arch (`linux/amd64,linux/arm64`).
 
 `/usr/local/bin/claude-run-pod` reads:
 - `/jobs/prompt.md`         — the prompt
-- `/jobs/allowed-tools.txt` — comma-separated tool allow-list
+- `/jobs/allowed-tools.txt` — tool allow-list; comma-separated on a single line
+  OR one tool per line. The entrypoint normalises newlines to commas before
+  passing to `claude --allowed-tools`.
 - `/jobs/job.env`           — optional env vars
 
 …and writes transcripts to `/workspace/runs/<UTC-ts>/`.
