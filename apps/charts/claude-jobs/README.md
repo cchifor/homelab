@@ -30,6 +30,20 @@ Full design and operator runbook: `docs/superpowers/plans/2026-05-12-claude-radx
    ./containers/claude-runner/build.sh   # multi-arch, run on the VM
    ```
 
+## Preflight check
+
+Before the first `helm install`, run the preflight script to verify all
+prerequisites are in place (tools on PATH, cluster reachable, namespace +
+ServiceAccounts present, OAuth Secret created, ≥4 nodes labeled, chart renders):
+
+```bash
+./apps/charts/claude-jobs/preflight.sh
+```
+
+Override checks with env vars if needed: `NAMESPACE=...`, `NODE_LABEL=...`,
+`EXPECTED_NODES=...`, `CHART_DIR=...`, `PILOT_VALUES=...`. Exits non-zero on
+the first failure with the offending check highlighted.
+
 ## Installing a job
 
 Each job is a separate Helm release with its own values file. Pilot:
