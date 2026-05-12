@@ -197,6 +197,17 @@ usermod -aG docker claude-agent || true
 
 systemctl enable --now docker
 
+# lazydocker — TUI for the dashboard 'docker' window. Single Go binary from
+# upstream release tarball; Debian has no package.
+LAZYDOCKER_VER="0.25.2"
+if [ ! -x /usr/local/bin/lazydocker ] \
+   || ! /usr/local/bin/lazydocker --version 2>/dev/null | grep -q "$LAZYDOCKER_VER"; then
+  curl -fsSL "https://github.com/jesseduffield/lazydocker/releases/download/v$${LAZYDOCKER_VER}/lazydocker_$${LAZYDOCKER_VER}_Linux_x86_64.tar.gz" \
+    | tar -xz -C /tmp lazydocker
+  install -m 0755 /tmp/lazydocker /usr/local/bin/lazydocker
+  rm -f /tmp/lazydocker
+fi
+
 # -----------------------------------------------------------------------------
 # Section 3: Node.js 20 LTS + Claude Code CLI (per-user, no sudo npm)
 # -----------------------------------------------------------------------------
@@ -687,7 +698,7 @@ fi
 #   cluster - k9s pointed at the read-only kubeconfig
 #   system  - htop
 #   jobs    - journalctl -f on the claude-job@*.service units
-#   docker  - docker ps + docker stats refreshing every 5s
+#   docker  - lazydocker (containers, stats, logs, exec)
 #   cheats  - tmux/Linux cheatsheet (pr -m -t side-by-side)
 # The default auto-attach SSH session ('main') is untouched — only invoked
 # when the operator explicitly runs claude-dashboard.
@@ -717,7 +728,7 @@ tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
 tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
-tmux new-window   -t "$SESSION:" -n docker  'while true; do clear; echo "── docker ps ──"; docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"; echo; echo "── docker stats ──"; docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" 2>/dev/null; sleep 5; done'
+tmux new-window   -t "$SESSION:" -n docker  'while true; do lazydocker; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
@@ -802,7 +813,7 @@ cat > /usr/local/share/cheat-tmux.txt <<'CHEATEOF'
   C-b 2            cluster (k9s)
   C-b 3            system (htop)
   C-b 4            jobs   (journalctl)
-  C-b 5            docker (ps + stats)
+  C-b 5            docker (lazydocker)
   C-b 6            cheats (this page)
 CHEATEOF
 chmod 0644 /usr/local/share/cheat-tmux.txt
