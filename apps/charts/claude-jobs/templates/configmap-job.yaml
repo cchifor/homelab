@@ -1,0 +1,17 @@
+{{- include "claude-jobs.validate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "claude-jobs.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "claude-jobs.labels" . | nindent 4 }}
+data:
+  prompt.md: |-
+{{ .Values.job.prompt | indent 4 }}
+  allowed-tools.txt: |-
+    {{ .Values.job.allowedTools }}
+  job.env: |-
+    CLAUDE_MAX_TURNS={{ .Values.job.maxTurns }}
+{{- range $k, $v := .Values.job.env }}
+    {{ $k }}={{ $v }}
+{{- end }}

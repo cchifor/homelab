@@ -1,0 +1,58 @@
+# Defaults. Each job is installed as its own release with a values file
+# overriding `job.name`, `job.schedule`, `job.prompt`, `job.allowedTools`,
+# and optionally `serviceAccount` (default: ro).
+
+image:
+  repository: gitea.chifor.dev/c4/claude-runner
+  tag: latest
+  pullPolicy: IfNotPresent
+
+namespace: claude-agent
+serviceAccount: claude-agent-ro      # override to claude-agent-rw for mutating jobs
+
+nodeSelector:
+  homelab.chifor/role: claude-worker
+
+tolerations: []
+affinity: {}
+
+storage:
+  storageClass: longhorn
+  size: 5Gi
+  # If true, the workspace PVC is annotated with helm.sh/resource-policy=keep,
+  # so `helm uninstall` leaves it (and its run transcripts) behind. Default
+  # false matches the original behavior for read-only pilot jobs where losing
+  # run logs is acceptable. Set true for jobs whose workspace state matters.
+  keepOnUninstall: false
+
+oauth:
+  # Long-lived `claude setup-token` token, stored in the named Secret under the
+  # given key, projected into the pod as the CLAUDE_CODE_OAUTH_TOKEN env var.
+  # No file mount, no rotation, no watcher — token is valid for ~1 year.
+  secretName: claude-oauth
+  tokenKey: CLAUDE_CODE_OAUTH_TOKEN
+
+# Baseline settings.json content (deny-list). Rendered into its own
+# ConfigMap and mounted at /home/claude-agent/.claude/settings.json.
+baselineSettings:
+  permissions:
+    deny:
+      - "Bash(docker:*)"
+      - "Bash(docker-compose:*)"
+      - "Bash(docker compose:*)"
+      - "Bash(podman:*)"
+      - "Bash(nerdctl:*)"
+      - "Bash(ctr:*)"
+
+job:
+  name: ""                # REQUIRED — per-values
+  schedule: ""            # REQUIRED — cron, e.g. "17 */6 * * *"
+  prompt: ""              # REQUIRED — multi-line string
+  allowedTools: ""        # REQUIRED — comma-separated, e.g. "Read,Grep,Bash(kubectl get:*)"
+  env: {}                 # optional key=value pairs piped into /jobs/job.env
+  activeDeadlineSeconds: 1800
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  backoffLimit: 0
+  maxTurns: 30
