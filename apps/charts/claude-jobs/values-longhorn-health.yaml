@@ -17,7 +17,8 @@ job:
       1. Volume count: total, healthy, degraded, faulted.
       2. Any volume in non-healthy state — name, replicas, last-state-change.
       3. Any Longhorn manager/engine pod not Running.
-      4. Disk capacity per node — flag any node >80% used.
+      4. Disk capacity per Longhorn node (via `kubectl get nodes.longhorn.io -A -o yaml`,
+         fields storageAvailable / storageMaximum) — flag any node >80% used.
 
     Be concise. End with a single-line SUMMARY: line that says either
     "OK" or "ATTENTION: <short reason>".
