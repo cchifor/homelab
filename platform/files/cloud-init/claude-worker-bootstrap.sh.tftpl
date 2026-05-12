@@ -932,4 +932,38 @@ cat > /usr/local/share/cheat-linux.txt <<'CHEATEOF'
 CHEATEOF
 chmod 0644 /usr/local/share/cheat-linux.txt
 
+# -----------------------------------------------------------------------------
+# Section 15: weekly docker buildx prune (keep last 7 days of cache)
+# Without this, /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs grows
+# unbounded as buildx caches pile up — easy to hit several GB in a single build.
+# -----------------------------------------------------------------------------
+echo "==> [15/?] docker-buildx-prune timer"
+
+cat > /etc/systemd/system/docker-buildx-prune.service <<'EOF'
+[Unit]
+Description=Prune docker buildkit cache older than 7 days
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker buildx prune -f --filter=until=168h
+EOF
+
+cat > /etc/systemd/system/docker-buildx-prune.timer <<'EOF'
+[Unit]
+Description=Weekly docker buildx prune
+
+[Timer]
+OnCalendar=Sun 03:00
+Persistent=true
+Unit=docker-buildx-prune.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now docker-buildx-prune.timer
+
 echo "==> claude-worker bootstrap finished"
