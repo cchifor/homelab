@@ -1,0 +1,20 @@
+# Cloud-init Network Config v2 for claude-worker-2.
+# Passed via Incus's cloud-init.network-config config key — see the launch
+# command in claude-worker-2-cloud-init.yaml.
+#
+# The VM's NIC inside the guest will be named "enp5s0" on a recent Debian 12
+# arm64 image launched via Incus virtio. Verify after first boot with
+# `ip -br link` and adjust this file (and the cloud-init.network-config key)
+# if the name differs.
+
+version: 2
+ethernets:
+  enp5s0:
+    dhcp4: false
+    addresses:
+      - 192.168.0.191/24
+    gateway4: 192.168.0.1
+    nameservers:
+      addresses:
+        - 192.168.0.1
+        - 1.1.1.1
