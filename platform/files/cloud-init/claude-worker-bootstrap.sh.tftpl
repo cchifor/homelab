@@ -297,10 +297,20 @@ systemctl is-active --quiet docker || systemctl start docker
 # -----------------------------------------------------------------------------
 echo "==> [3/?] Node.js + Claude Code"
 
-if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -d. -f1)" != "v20" ]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y -qq nodejs
+if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -d. -f1 | tr -d v)" -lt 18 ]; then
+  # Prefer NodeSource 20.x; fall back to distro nodejs+npm if NodeSource is
+  # unreachable (Cloudflare-edge timeouts have been observed from some networks).
+  if curl -fsSL --max-time 20 https://deb.nodesource.com/setup_20.x -o /tmp/nodesource.sh && bash /tmp/nodesource.sh && apt-get install -y -qq nodejs; then
+    rm -f /tmp/nodesource.sh
+  else
+    echo "    (NodeSource unreachable — using distro nodejs + npm)"
+    rm -f /tmp/nodesource.sh /etc/apt/sources.list.d/nodesource.* /usr/share/keyrings/nodesource.gpg
+    apt-get update -qq
+    apt-get install -y -qq nodejs npm
+  fi
 fi
+# Some distro nodejs packages ship without npm (Debian 12). Ensure both present.
+command -v npm >/dev/null 2>&1 || apt-get install -y -qq npm
 
 # Per-user global npm prefix so 'npm install -g' works without sudo
 install_claude_code_for() {
