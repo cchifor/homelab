@@ -460,12 +460,21 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get install -y -qq caddy
 fi
 
-cat > /etc/caddy/Caddyfile <<'EOF'
+# Detect hostname + primary IP so Caddy can issue a local-CA leaf cert with
+# both as SANs. With just `:443 { tls internal }`, Caddy generates no cert
+# when the client connects by IP (no matching hostname) and the browser
+# fails with ERR_SSL_PROTOCOL_ERROR.
+CADDY_HOSTNAME=$(hostname)
+CADDY_PRIMARY_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+cat > /etc/caddy/Caddyfile <<EOF
 # Caddy in front of ttyd. tls internal = self-signed via Caddy's local CA;
 # browser will show a "not secure" warning on first visit (trust-on-first-use).
 # Public access goes through CF Tunnel + CF Access at claude.chifor.dev with a
 # properly-trusted cert from Cloudflare's edge.
-:443 {
+{
+  local_certs
+}
+https://$${CADDY_PRIMARY_IP}, https://$${CADDY_HOSTNAME} {
   tls internal
   reverse_proxy 127.0.0.1:7681
 }
