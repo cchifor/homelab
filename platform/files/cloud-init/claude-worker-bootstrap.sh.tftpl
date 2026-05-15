@@ -306,8 +306,8 @@ echo "==> [2.6/?] dockerd memory cap + weekly preventive restart"
 install -d /etc/systemd/system/docker.service.d
 cat > /etc/systemd/system/docker.service.d/memory-cap.conf <<'EOF'
 [Service]
-MemoryMax=1500M
-MemoryHigh=1200M
+MemoryMax=2000M
+MemoryHigh=1700M
 EOF
 
 cat > /etc/systemd/system/docker-weekly-restart.service <<'EOF'
@@ -878,7 +878,7 @@ tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
 tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
-tmux new-window   -t "$SESSION:" -n docker  'while true; do lazydocker; sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n docker  'while true; do timeout 30m lazydocker; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
