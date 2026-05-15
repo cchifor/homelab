@@ -7,6 +7,28 @@ set -euo pipefail
 
 echo "==> claude-worker bootstrap starting"
 
+# Architecture detection — release-asset naming differs per project:
+#   amd64 host → Go-style 'amd64', uname-style 'x86_64', lazydocker 'x86_64'
+#   arm64 host → Go-style 'arm64', uname-style 'aarch64', lazydocker 'arm64'
+ARCH_DPKG=$(dpkg --print-architecture)
+case "$ARCH_DPKG" in
+  amd64)
+    ARCH_GO=amd64          # yq, helm, k9s, cloudflared (Go release convention)
+    ARCH_UNAME=x86_64      # ttyd
+    ARCH_LAZYDOCKER=x86_64
+    ;;
+  arm64)
+    ARCH_GO=arm64
+    ARCH_UNAME=aarch64
+    ARCH_LAZYDOCKER=arm64
+    ;;
+  *)
+    echo "==> ERROR: unsupported architecture: $ARCH_DPKG" >&2
+    exit 1
+    ;;
+esac
+echo "==> arch: $ARCH_DPKG  (Go=$ARCH_GO  uname=$ARCH_UNAME)"
+
 # -----------------------------------------------------------------------------
 # Section 1: base packages + tmux defaults + claude-agent user + /workspace mount
 # -----------------------------------------------------------------------------
@@ -23,7 +45,7 @@ apt-get install -y -qq \
 # Distro 'yq' is the Python jq-wrapper, not what we want.
 if ! command -v /usr/local/bin/yq >/dev/null 2>&1; then
   curl -sSLo /usr/local/bin/yq \
-    https://github.com/mikefarah/yq/releases/download/v4.44.5/yq_linux_amd64
+    "https://github.com/mikefarah/yq/releases/download/v4.44.5/yq_linux_$${ARCH_GO}"
   chmod +x /usr/local/bin/yq
 fi
 
@@ -46,8 +68,10 @@ fi
 if ! mountpoint -q /workspace; then
   ROOT_DEV=$(findmnt -no SOURCE / | sed 's/[0-9]*$//')   # e.g. /dev/sdb1 → /dev/sdb
   DATA_DEV=""
-  # First pass: prefer a disk that already has the workspace label (re-run case)
-  for cand in /dev/sd?; do
+  # First pass: prefer a disk that already has the workspace label (re-run case).
+  # Glob covers both Proxmox SCSI (/dev/sd?) and Incus/KVM virtio (/dev/vd?).
+  for cand in /dev/sd? /dev/vd?; do
+    [ -b "$cand" ] || continue
     [ "$cand" = "$ROOT_DEV" ] && continue
     if blkid -t LABEL=workspace "$cand" >/dev/null 2>&1; then
       DATA_DEV="$cand"
@@ -56,7 +80,8 @@ if ! mountpoint -q /workspace; then
   done
   # Second pass: any other disk that has no filesystem yet
   if [ -z "$DATA_DEV" ]; then
-    for cand in /dev/sd?; do
+    for cand in /dev/sd? /dev/vd?; do
+      [ -b "$cand" ] || continue
       [ "$cand" = "$ROOT_DEV" ] && continue
       [ "$(blockdev --getsize64 "$cand" 2>/dev/null || echo 0)" -lt 1000000000 ] && continue   # skip < 1 GB
       if ! blkid "$cand" >/dev/null 2>&1; then
@@ -202,7 +227,7 @@ systemctl enable --now docker
 LAZYDOCKER_VER="0.25.2"
 if [ ! -x /usr/local/bin/lazydocker ] \
    || ! /usr/local/bin/lazydocker --version 2>/dev/null | grep -q "$LAZYDOCKER_VER"; then
-  curl -fsSL "https://github.com/jesseduffield/lazydocker/releases/download/v$${LAZYDOCKER_VER}/lazydocker_$${LAZYDOCKER_VER}_Linux_x86_64.tar.gz" \
+  curl -fsSL "https://github.com/jesseduffield/lazydocker/releases/download/v$${LAZYDOCKER_VER}/lazydocker_$${LAZYDOCKER_VER}_Linux_$${ARCH_LAZYDOCKER}.tar.gz" \
     | tar -xz -C /tmp lazydocker
   install -m 0755 /tmp/lazydocker /usr/local/bin/lazydocker
   rm -f /tmp/lazydocker
@@ -268,14 +293,71 @@ EOF
 systemctl is-active --quiet docker || systemctl start docker
 
 # -----------------------------------------------------------------------------
+# Section 2.6: dockerd memory safety
+# Caps dockerd RSS so a leaked daemon (seen with stuck healthchecks / crash
+# loops in long-running compose stacks) gets OOM-killed cleanly and systemd
+# restarts it — instead of dragging the whole 8 GiB VM into swap-thrash where
+# even sshd can't fork. Containerd survives dockerd restarts; running
+# containers reattach. Also schedules a weekly preventive restart so the
+# leak never accumulates past one week of uptime.
+# -----------------------------------------------------------------------------
+echo "==> [2.6/?] dockerd memory cap + weekly preventive restart"
+
+install -d /etc/systemd/system/docker.service.d
+cat > /etc/systemd/system/docker.service.d/memory-cap.conf <<'EOF'
+[Service]
+MemoryMax=2000M
+MemoryHigh=1700M
+EOF
+
+cat > /etc/systemd/system/docker-weekly-restart.service <<'EOF'
+[Unit]
+Description=Weekly preventive restart of dockerd (mitigate slow memory growth)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart docker.service
+EOF
+cat > /etc/systemd/system/docker-weekly-restart.timer <<'EOF'
+[Unit]
+Description=Trigger weekly preventive docker restart
+
+[Timer]
+OnCalendar=Sun 04:00:00
+Persistent=true
+Unit=docker-weekly-restart.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now docker-weekly-restart.timer
+# Reload docker so the new MemoryMax takes effect (a no-op if it's already
+# under the limit and starting from a fresh bootstrap).
+systemctl restart docker
+
+# -----------------------------------------------------------------------------
 # Section 3: Node.js 20 LTS + Claude Code CLI (per-user, no sudo npm)
 # -----------------------------------------------------------------------------
 echo "==> [3/?] Node.js + Claude Code"
 
-if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -d. -f1)" != "v20" ]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y -qq nodejs
+if ! command -v node >/dev/null 2>&1 || [ "$(node --version | cut -d. -f1 | tr -d v)" -lt 18 ]; then
+  # Prefer NodeSource 20.x; fall back to distro nodejs+npm if NodeSource is
+  # unreachable (Cloudflare-edge timeouts have been observed from some networks).
+  if curl -fsSL --max-time 20 https://deb.nodesource.com/setup_20.x -o /tmp/nodesource.sh && bash /tmp/nodesource.sh && apt-get install -y -qq nodejs; then
+    rm -f /tmp/nodesource.sh
+  else
+    echo "    (NodeSource unreachable — using distro nodejs + npm)"
+    rm -f /tmp/nodesource.sh /etc/apt/sources.list.d/nodesource.* /usr/share/keyrings/nodesource.gpg
+    apt-get update -qq
+    apt-get install -y -qq nodejs npm
+  fi
 fi
+# Some distro nodejs packages ship without npm (Debian 12). Ensure both present.
+command -v npm >/dev/null 2>&1 || apt-get install -y -qq npm
 
 # Per-user global npm prefix so 'npm install -g' works without sudo
 install_claude_code_for() {
@@ -363,16 +445,16 @@ rm -f /etc/apt/keyrings/helm.gpg /etc/apt/sources.list.d/helm-stable-debian.list
 HELM_VER="v3.16.3"
 if [ ! -x /usr/local/bin/helm ] || ! /usr/local/bin/helm version --short 2>/dev/null | grep -q "$HELM_VER"; then
   rm -rf /tmp/helm-extract && mkdir -p /tmp/helm-extract
-  curl -fsSL "https://get.helm.sh/helm-$${HELM_VER}-linux-amd64.tar.gz" \
+  curl -fsSL "https://get.helm.sh/helm-$${HELM_VER}-linux-$${ARCH_GO}.tar.gz" \
     | tar -xz -C /tmp/helm-extract
-  install -m 0755 /tmp/helm-extract/linux-amd64/helm /usr/local/bin/helm
+  install -m 0755 "/tmp/helm-extract/linux-$${ARCH_GO}/helm" /usr/local/bin/helm
   rm -rf /tmp/helm-extract
 fi
 
 # k9s — Debian doesn't have it; install from upstream release tarball
 K9S_VER="v0.32.5"
 if [ ! -x /usr/local/bin/k9s ] || ! /usr/local/bin/k9s version 2>/dev/null | grep -q "$K9S_VER"; then
-  curl -fsSL "https://github.com/derailed/k9s/releases/download/$K9S_VER/k9s_Linux_amd64.tar.gz" \
+  curl -fsSL "https://github.com/derailed/k9s/releases/download/$K9S_VER/k9s_Linux_$${ARCH_GO}.tar.gz" \
     | tar -xz -C /tmp k9s
   install -m 0755 /tmp/k9s /usr/local/bin/k9s
   rm -f /tmp/k9s
@@ -392,7 +474,7 @@ echo "==> [6/?] ttyd + Caddy"
 
 TTYD_VER="1.7.7"
 if [ ! -x /usr/local/bin/ttyd ] || ! /usr/local/bin/ttyd --version 2>&1 | grep -q "$TTYD_VER"; then
-  curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/$TTYD_VER/ttyd.x86_64" \
+  curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/$TTYD_VER/ttyd.$${ARCH_UNAME}" \
     -o /usr/local/bin/ttyd
   chmod +x /usr/local/bin/ttyd
 fi
@@ -425,12 +507,21 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get install -y -qq caddy
 fi
 
-cat > /etc/caddy/Caddyfile <<'EOF'
+# Detect hostname + primary IP so Caddy can issue a local-CA leaf cert with
+# both as SANs. With just `:443 { tls internal }`, Caddy generates no cert
+# when the client connects by IP (no matching hostname) and the browser
+# fails with ERR_SSL_PROTOCOL_ERROR.
+CADDY_HOSTNAME=$(hostname)
+CADDY_PRIMARY_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+cat > /etc/caddy/Caddyfile <<EOF
 # Caddy in front of ttyd. tls internal = self-signed via Caddy's local CA;
 # browser will show a "not secure" warning on first visit (trust-on-first-use).
 # Public access goes through CF Tunnel + CF Access at claude.chifor.dev with a
 # properly-trusted cert from Cloudflare's edge.
-:443 {
+{
+  local_certs
+}
+https://$${CADDY_PRIMARY_IP}, https://$${CADDY_HOSTNAME} {
   tls internal
   reverse_proxy 127.0.0.1:7681
 }
@@ -787,7 +878,7 @@ tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
 tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
-tmux new-window   -t "$SESSION:" -n docker  'while true; do lazydocker; sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n docker  'while true; do timeout 30m lazydocker; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"

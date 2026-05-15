@@ -1,0 +1,41 @@
+#cloud-config
+# Cloud-init user-data for the claude-worker-2 VM created via Incus on q6a-1.
+#
+# Apply with:
+#   incus launch images:debian/12 claude-worker-2 --vm \
+#     -c limits.cpu=3 -c limits.memory=6GB \
+#     -d root,size=16GiB \
+#     -c cloud-init.user-data="$(cat platform/files/incus/claude-worker-2-cloud-init.yaml)" \
+#     -c cloud-init.network-config="$(cat platform/files/incus/claude-worker-2-network-config.yaml)"
+#   incus config device add claude-worker-2 data disk pool=default size=48GiB
+#   incus config set claude-worker-2 boot.autostart=true
+#   incus start claude-worker-2
+#
+# REPLACE the <SSH_PUBKEY> placeholder with the same key used in terraform.tfvars
+# (`claude_worker_ssh_public_key`) before applying.
+
+hostname: claude-worker-2
+manage_etc_hosts: true
+fqdn: claude-worker-2.lan
+
+users:
+  - name: c4
+    groups: [sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - <SSH_PUBKEY>
+
+# Keep the package layer minimal — the claude-worker-bootstrap.sh.tftpl
+# script (copied in via Terraform/scp after first boot) handles every other
+# package and service. Just bring up the QEMU guest agent so Incus can
+# introspect the VM, plus the SSH server already present on the Debian
+# cloud image.
+package_update: true
+packages:
+  - qemu-guest-agent
+
+runcmd:
+  - systemctl enable --now qemu-guest-agent
+  # Belt-and-braces: ensure SSH listens; cloud image default but harmless.
+  - systemctl enable --now ssh
