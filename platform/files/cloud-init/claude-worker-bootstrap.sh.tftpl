@@ -293,6 +293,53 @@ EOF
 systemctl is-active --quiet docker || systemctl start docker
 
 # -----------------------------------------------------------------------------
+# Section 2.6: dockerd memory safety
+# Caps dockerd RSS so a leaked daemon (seen with stuck healthchecks / crash
+# loops in long-running compose stacks) gets OOM-killed cleanly and systemd
+# restarts it — instead of dragging the whole 8 GiB VM into swap-thrash where
+# even sshd can't fork. Containerd survives dockerd restarts; running
+# containers reattach. Also schedules a weekly preventive restart so the
+# leak never accumulates past one week of uptime.
+# -----------------------------------------------------------------------------
+echo "==> [2.6/?] dockerd memory cap + weekly preventive restart"
+
+install -d /etc/systemd/system/docker.service.d
+cat > /etc/systemd/system/docker.service.d/memory-cap.conf <<'EOF'
+[Service]
+MemoryMax=1500M
+MemoryHigh=1200M
+EOF
+
+cat > /etc/systemd/system/docker-weekly-restart.service <<'EOF'
+[Unit]
+Description=Weekly preventive restart of dockerd (mitigate slow memory growth)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart docker.service
+EOF
+cat > /etc/systemd/system/docker-weekly-restart.timer <<'EOF'
+[Unit]
+Description=Trigger weekly preventive docker restart
+
+[Timer]
+OnCalendar=Sun 04:00:00
+Persistent=true
+Unit=docker-weekly-restart.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now docker-weekly-restart.timer
+# Reload docker so the new MemoryMax takes effect (a no-op if it's already
+# under the limit and starting from a fresh bootstrap).
+systemctl restart docker
+
+# -----------------------------------------------------------------------------
 # Section 3: Node.js 20 LTS + Claude Code CLI (per-user, no sudo npm)
 # -----------------------------------------------------------------------------
 echo "==> [3/?] Node.js + Claude Code"
