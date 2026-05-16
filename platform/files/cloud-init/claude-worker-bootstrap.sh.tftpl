@@ -244,110 +244,112 @@ if [ ! -x /usr/local/bin/oxker ] \
   rm -f /tmp/oxker
 fi
 
-# oxker color overrides — Catppuccin Mocha palette. The default
-# `colors.containers.text = "blue"` is unreadable dark ANSI blue on a
-# black terminal. Catppuccin Mocha is designed for high contrast on
-# dark backgrounds (https://catppuccin.com/palette/) and is the most
-# widely-adopted dark-theme palette in TUIs / editors.
+# oxker color overrides — htop-style palette. White text on black with
+# cyan accents, green for "healthy/good", yellow for warnings, and red
+# RESERVED for real errors (dead containers, stop command). Exited gets
+# gray (it's informational, not an alarm) — otherwise oxker tints the
+# entire row with the state color and a screen full of exited containers
+# becomes a wall of red.
 install -d -m 0755 -o ${ssh_user} -g ${ssh_user} /home/${ssh_user}/.config/oxker
 cat > /home/${ssh_user}/.config/oxker/config.toml <<'EOF'
-# Catppuccin Mocha palette for oxker. Every key overrides oxker's default;
-# anything omitted falls back to the built-in.
+# htop-style palette: white text on black, cyan accents, green for healthy,
+# yellow for warnings, red only for real errors. Every key here overrides
+# oxker's default; anything omitted inherits the built-in.
 
 [colors.headers_bar]
-background = "#313244"            # Surface0
-text = "#cdd6f4"                  # Text
-text_selected = "#f9e2af"         # Yellow
-loading_spinner = "#89dceb"       # Sky
+background = "reset"               # no bar bg, like htop
+text = "#5fd7ff"                   # cyan column labels (htop convention)
+text_selected = "#ffffff"          # white when sorting by this column
+loading_spinner = "#5fd7ff"
 
 [colors.borders]
-selected = "#89b4fa"              # Blue
-unselected = "#6c7086"            # Overlay0
+selected = "#5fd7ff"               # cyan (htop window border)
+unselected = "#7f849c"             # subtle gray
 
 [colors.containers]
-icon = "#f9e2af"                  # Yellow (selection marker)
+icon = "#5fff5f"                   # bright green selection marker
 background = "reset"
-text = "#b4befe"                  # Lavender (name/id/image)
-text_rx = "#a6e3a1"               # Green
-text_tx = "#fab387"               # Peach
+text = "#ffffff"                   # WHITE container name/id/image
+text_rx = "#5fff5f"                # green for RX
+text_tx = "#ffd75f"                # yellow for TX
 
 [colors.container_state]
-running_healthy = "#a6e3a1"       # Green
-running_unhealthy = "#fab387"     # Peach
-exited = "#eba0ac"                # Maroon (softer red — readable)
-dead = "#f38ba8"                  # Red
-paused = "#f9e2af"                # Yellow
-restarting = "#94e2d5"            # Teal
-removing = "#f5c2e7"              # Pink
-unknown = "#9399b2"               # Overlay2
+running_healthy = "#5fff5f"        # green (htop "good")
+running_unhealthy = "#ffd75f"      # yellow (warning, not panic)
+exited = "#7f849c"                 # GRAY — exited is informational
+dead = "#ff5f5f"                   # red — actual problem
+paused = "#ffd75f"                 # yellow
+restarting = "#5fd7ff"             # cyan (in-progress)
+removing = "#ff87af"               # pink (transient)
+unknown = "#7f849c"                # gray
 
 [colors.commands]
 background = "reset"
-start = "#a6e3a1"
-pause = "#f9e2af"
-restart = "#cba6f7"               # Mauve
-resume = "#74c7ec"                # Sapphire
-stop = "#f38ba8"
-delete = "#6c7086"
+start = "#5fff5f"
+pause = "#ffd75f"
+restart = "#af87ff"                # magenta
+resume = "#5fd7ff"
+stop = "#ff5f5f"                   # htop kill = red
+delete = "#7f849c"
 
 [colors.chart_cpu]
 background = "reset"
-border = "#6c7086"
-title = "#a6e3a1"
-max = "#fab387"
-points = "#89b4fa"
-y_axis = "#cdd6f4"
+border = "#7f849c"
+title = "#5fd7ff"
+max = "#ff5f5f"                    # red ceiling
+points = "#5fff5f"                 # green points (htop CPU bar)
+y_axis = "#ffffff"
 
 [colors.chart_memory]
 background = "reset"
-border = "#6c7086"
-y_axis = "#cdd6f4"
+border = "#7f849c"
+y_axis = "#ffffff"
 
 [colors.chart_bandwidth]
 background = "reset"
-border = "#6c7086"
-y_axis = "#cdd6f4"
+border = "#7f849c"
+y_axis = "#ffffff"
 
 [colors.chart_ports]
 background = "reset"
-border = "#6c7086"
+border = "#7f849c"
 
 [colors.logs]
 background = "reset"
-text = "#cdd6f4"
+text = "#ffffff"
 
 [colors.log_search]
 background = "reset"
-text = "#cdd6f4"
-button_text = "#1e1e2e"
-highlight = "#f5c2e7"
+text = "#ffffff"
+button_text = "#000000"
+highlight = "#ffd75f"
 
 [colors.filter]
 background = "reset"
-text = "#cdd6f4"
-selected_filter_background = "#45475a"
-selected_filter_text = "#cdd6f4"
-highlight = "#f5c2e7"
+text = "#ffffff"
+selected_filter_background = "#5fd7ff"
+selected_filter_text = "#000000"
+highlight = "#ffd75f"
 
 [colors.popup_help]
-background = "#313244"
-border = "#89b4fa"
-text = "#cdd6f4"
+background = "reset"
+border = "#5fd7ff"
+text = "#ffffff"
 
 [colors.popup_info]
-background = "#313244"
-border = "#89dceb"
-text = "#cdd6f4"
+background = "reset"
+border = "#5fd7ff"
+text = "#ffffff"
 
 [colors.popup_error]
-background = "#313244"
-border = "#f38ba8"
-text = "#cdd6f4"
+background = "reset"
+border = "#ff5f5f"
+text = "#ffffff"
 
 [colors.popup_delete]
-background = "#313244"
-border = "#f38ba8"
-text = "#cdd6f4"
+background = "reset"
+border = "#ff5f5f"
+text = "#ffffff"
 EOF
 chown ${ssh_user}:${ssh_user} /home/${ssh_user}/.config/oxker/config.toml
 chmod 0644 /home/${ssh_user}/.config/oxker/config.toml
