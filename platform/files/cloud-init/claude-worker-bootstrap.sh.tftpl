@@ -244,49 +244,110 @@ if [ ! -x /usr/local/bin/oxker ] \
   rm -f /tmp/oxker
 fi
 
-# oxker color overrides — the default `colors.containers.text = "blue"` is
-# unreadable dark ANSI blue on a black terminal. Match the existing tmux
-# status-bar palette (bright cyan / gold / dark-gray bar) for legibility.
+# oxker color overrides — Catppuccin Mocha palette. The default
+# `colors.containers.text = "blue"` is unreadable dark ANSI blue on a
+# black terminal. Catppuccin Mocha is designed for high contrast on
+# dark backgrounds (https://catppuccin.com/palette/) and is the most
+# widely-adopted dark-theme palette in TUIs / editors.
 install -d -m 0755 -o ${ssh_user} -g ${ssh_user} /home/${ssh_user}/.config/oxker
 cat > /home/${ssh_user}/.config/oxker/config.toml <<'EOF'
-# Black-terminal-friendly oxker theme. Every other key inherits defaults.
+# Catppuccin Mocha palette for oxker. Every key overrides oxker's default;
+# anything omitted falls back to the built-in.
+
 [colors.headers_bar]
-background = "#3a3a3a"
-text = "#e4e4e4"
-text_selected = "#ffd700"
-loading_spinner = "#5fd7ff"
+background = "#313244"            # Surface0
+text = "#cdd6f4"                  # Text
+text_selected = "#f9e2af"         # Yellow
+loading_spinner = "#89dceb"       # Sky
 
 [colors.borders]
-selected = "#5fd7ff"
-unselected = "#5f5f5f"
+selected = "#89b4fa"              # Blue
+unselected = "#6c7086"            # Overlay0
 
 [colors.containers]
-icon = "#ffd700"
+icon = "#f9e2af"                  # Yellow (selection marker)
 background = "reset"
-text = "#5fd7ff"
-text_rx = "#a6e3a1"
-text_tx = "#fab387"
+text = "#b4befe"                  # Lavender (name/id/image)
+text_rx = "#a6e3a1"               # Green
+text_tx = "#fab387"               # Peach
 
 [colors.container_state]
-running_healthy = "#5fff5f"
-running_unhealthy = "#ffaf00"
-exited = "#ff5f5f"
-dead = "#ff5f5f"
-paused = "#ffff5f"
-restarting = "#5fff5f"
-removing = "#ff5f5f"
-unknown = "#ff5f5f"
+running_healthy = "#a6e3a1"       # Green
+running_unhealthy = "#fab387"     # Peach
+exited = "#eba0ac"                # Maroon (softer red — readable)
+dead = "#f38ba8"                  # Red
+paused = "#f9e2af"                # Yellow
+restarting = "#94e2d5"            # Teal
+removing = "#f5c2e7"              # Pink
+unknown = "#9399b2"               # Overlay2
+
+[colors.commands]
+background = "reset"
+start = "#a6e3a1"
+pause = "#f9e2af"
+restart = "#cba6f7"               # Mauve
+resume = "#74c7ec"                # Sapphire
+stop = "#f38ba8"
+delete = "#6c7086"
 
 [colors.chart_cpu]
-border = "#e4e4e4"
-title = "#5fff5f"
-max = "#ffaf00"
-points = "#5fd7ff"
-y_axis = "#e4e4e4"
+background = "reset"
+border = "#6c7086"
+title = "#a6e3a1"
+max = "#fab387"
+points = "#89b4fa"
+y_axis = "#cdd6f4"
 
 [colors.chart_memory]
-border = "#e4e4e4"
-y_axis = "#e4e4e4"
+background = "reset"
+border = "#6c7086"
+y_axis = "#cdd6f4"
+
+[colors.chart_bandwidth]
+background = "reset"
+border = "#6c7086"
+y_axis = "#cdd6f4"
+
+[colors.chart_ports]
+background = "reset"
+border = "#6c7086"
+
+[colors.logs]
+background = "reset"
+text = "#cdd6f4"
+
+[colors.log_search]
+background = "reset"
+text = "#cdd6f4"
+button_text = "#1e1e2e"
+highlight = "#f5c2e7"
+
+[colors.filter]
+background = "reset"
+text = "#cdd6f4"
+selected_filter_background = "#45475a"
+selected_filter_text = "#cdd6f4"
+highlight = "#f5c2e7"
+
+[colors.popup_help]
+background = "#313244"
+border = "#89b4fa"
+text = "#cdd6f4"
+
+[colors.popup_info]
+background = "#313244"
+border = "#89dceb"
+text = "#cdd6f4"
+
+[colors.popup_error]
+background = "#313244"
+border = "#f38ba8"
+text = "#cdd6f4"
+
+[colors.popup_delete]
+background = "#313244"
+border = "#f38ba8"
+text = "#cdd6f4"
 EOF
 chown ${ssh_user}:${ssh_user} /home/${ssh_user}/.config/oxker/config.toml
 chmod 0644 /home/${ssh_user}/.config/oxker/config.toml
