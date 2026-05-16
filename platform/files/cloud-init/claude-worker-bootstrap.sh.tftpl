@@ -244,6 +244,53 @@ if [ ! -x /usr/local/bin/oxker ] \
   rm -f /tmp/oxker
 fi
 
+# oxker color overrides — the default `colors.containers.text = "blue"` is
+# unreadable dark ANSI blue on a black terminal. Match the existing tmux
+# status-bar palette (bright cyan / gold / dark-gray bar) for legibility.
+install -d -m 0755 -o ${ssh_user} -g ${ssh_user} /home/${ssh_user}/.config/oxker
+cat > /home/${ssh_user}/.config/oxker/config.toml <<'EOF'
+# Black-terminal-friendly oxker theme. Every other key inherits defaults.
+[colors.headers_bar]
+background = "#3a3a3a"
+text = "#e4e4e4"
+text_selected = "#ffd700"
+loading_spinner = "#5fd7ff"
+
+[colors.borders]
+selected = "#5fd7ff"
+unselected = "#5f5f5f"
+
+[colors.containers]
+icon = "#ffd700"
+background = "reset"
+text = "#5fd7ff"
+text_rx = "#a6e3a1"
+text_tx = "#fab387"
+
+[colors.container_state]
+running_healthy = "#5fff5f"
+running_unhealthy = "#ffaf00"
+exited = "#ff5f5f"
+dead = "#ff5f5f"
+paused = "#ffff5f"
+restarting = "#5fff5f"
+removing = "#ff5f5f"
+unknown = "#ff5f5f"
+
+[colors.chart_cpu]
+border = "#e4e4e4"
+title = "#5fff5f"
+max = "#ffaf00"
+points = "#5fd7ff"
+y_axis = "#e4e4e4"
+
+[colors.chart_memory]
+border = "#e4e4e4"
+y_axis = "#e4e4e4"
+EOF
+chown ${ssh_user}:${ssh_user} /home/${ssh_user}/.config/oxker/config.toml
+chmod 0644 /home/${ssh_user}/.config/oxker/config.toml
+
 # -----------------------------------------------------------------------------
 # Section 2.5: Relocate Docker + containerd state to /workspace, add log rotation
 # Root disk is 16 GB; buildx snapshots and overlayfs layers can easily exceed
