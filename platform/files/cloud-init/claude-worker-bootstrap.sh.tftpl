@@ -8,19 +8,17 @@ set -euo pipefail
 echo "==> claude-worker bootstrap starting"
 
 # Architecture detection — release-asset naming differs per project:
-#   amd64 host → Go-style 'amd64', uname-style 'x86_64', lazydocker 'x86_64'
-#   arm64 host → Go-style 'arm64', uname-style 'aarch64', lazydocker 'arm64'
+#   amd64 host → Go-style 'amd64', uname-style 'x86_64'
+#   arm64 host → Go-style 'arm64', uname-style 'aarch64'
 ARCH_DPKG=$(dpkg --print-architecture)
 case "$ARCH_DPKG" in
   amd64)
-    ARCH_GO=amd64          # yq, helm, k9s, cloudflared (Go release convention)
+    ARCH_GO=amd64          # yq, helm, k9s, ctop, cloudflared (Go release convention)
     ARCH_UNAME=x86_64      # ttyd
-    ARCH_LAZYDOCKER=x86_64
     ;;
   arm64)
     ARCH_GO=arm64
     ARCH_UNAME=aarch64
-    ARCH_LAZYDOCKER=arm64
     ;;
   *)
     echo "==> ERROR: unsupported architecture: $ARCH_DPKG" >&2
@@ -222,15 +220,17 @@ usermod -aG docker claude-agent || true
 
 systemctl enable --now docker
 
-# lazydocker — TUI for the dashboard 'docker' window. Single Go binary from
-# upstream release tarball; Debian has no package.
-LAZYDOCKER_VER="0.25.2"
-if [ ! -x /usr/local/bin/lazydocker ] \
-   || ! /usr/local/bin/lazydocker --version 2>/dev/null | grep -q "$LAZYDOCKER_VER"; then
-  curl -fsSL "https://github.com/jesseduffield/lazydocker/releases/download/v$${LAZYDOCKER_VER}/lazydocker_$${LAZYDOCKER_VER}_Linux_$${ARCH_LAZYDOCKER}.tar.gz" \
-    | tar -xz -C /tmp lazydocker
-  install -m 0755 /tmp/lazydocker /usr/local/bin/lazydocker
-  rm -f /tmp/lazydocker
+# ctop — container metrics TUI for the dashboard 'docker' window. Replaces
+# lazydocker, which leaked thousands of UNIX sockets into dockerd via its
+# polling pattern (each cancelled GET /images/json wedged ~10 dockerd
+# goroutines and 1 socket). ctop polls less aggressively and stays at
+# a flat ~5-15 MB RSS over multi-day sessions.
+CTOP_VER="0.7.7"
+if [ ! -x /usr/local/bin/ctop ] \
+   || ! /usr/local/bin/ctop -v 2>&1 | grep -q "$CTOP_VER"; then
+  curl -fsSL "https://github.com/bcicen/ctop/releases/download/v$${CTOP_VER}/ctop-$${CTOP_VER}-linux-$${ARCH_GO}" \
+    -o /usr/local/bin/ctop
+  chmod 0755 /usr/local/bin/ctop
 fi
 
 # -----------------------------------------------------------------------------
@@ -848,7 +848,7 @@ fi
 #   cluster - k9s pointed at the read-only kubeconfig
 #   system  - htop
 #   jobs    - journalctl -f on the claude-job@*.service units
-#   docker  - lazydocker (containers, stats, logs, exec)
+#   docker  - ctop (containers, stats, logs, exec)
 #   cheats  - tmux/Linux cheatsheet (pr -m -t side-by-side)
 # The default auto-attach SSH session ('main') is untouched — only invoked
 # when the operator explicitly runs claude-dashboard.
@@ -878,7 +878,7 @@ tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
 tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
-tmux new-window   -t "$SESSION:" -n docker  'while true; do timeout 30m lazydocker; sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n docker  'while true; do ctop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
@@ -963,7 +963,7 @@ cat > /usr/local/share/cheat-tmux.txt <<'CHEATEOF'
   C-b 2            cluster (k9s)
   C-b 3            system (htop)
   C-b 4            jobs   (journalctl)
-  C-b 5            docker (lazydocker)
+  C-b 5            docker (ctop)
   C-b 6            cheats (this page)
 CHEATEOF
 chmod 0644 /usr/local/share/cheat-tmux.txt
