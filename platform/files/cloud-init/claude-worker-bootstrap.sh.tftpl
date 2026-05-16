@@ -220,17 +220,28 @@ usermod -aG docker claude-agent || true
 
 systemctl enable --now docker
 
-# ctop — container metrics TUI for the dashboard 'docker' window. Replaces
-# lazydocker, which leaked thousands of UNIX sockets into dockerd via its
-# polling pattern (each cancelled GET /images/json wedged ~10 dockerd
-# goroutines and 1 socket). ctop polls less aggressively and stays at
-# a flat ~5-15 MB RSS over multi-day sessions.
-CTOP_VER="0.7.7"
-if [ ! -x /usr/local/bin/ctop ] \
-   || ! /usr/local/bin/ctop -v 2>&1 | grep -q "$CTOP_VER"; then
-  curl -fsSL "https://github.com/bcicen/ctop/releases/download/v$${CTOP_VER}/ctop-$${CTOP_VER}-linux-$${ARCH_GO}" \
-    -o /usr/local/bin/ctop
-  chmod 0755 /usr/local/bin/ctop
+# oxker — Rust/ratatui Docker TUI for the dashboard 'docker' window.
+# Picked over lazydocker (which leaked thousands of UNIX sockets into dockerd
+# via its short-lived polling pattern) and over ctop (unmaintained since 2022,
+# uses termbox so it panics on tmux-256color TERM, and a Go SDK that opens a
+# new HTTP connection per refresh). oxker uses Bollard's persistent streaming
+# connections (5 long-lived sockets vs ctop's per-refresh churn), holds a
+# steady ~7 MB RSS and 0.3 % CPU, and runs cleanly in tmux without TERM hacks.
+# Trade-off accepted: no block-IO column — but neither ctop nor dtop nor oxker
+# read cgroup-v2 io.stat (the field is only in Docker's new structured stats
+# response; legacy BlkioStats stays empty on v2). Use `docker stats` ad-hoc
+# if you need IO numbers.
+OXKER_VER="0.13.2"
+case "$ARCH_DPKG" in
+  amd64) OXKER_ASSET="oxker_linux_x86_64.tar.gz" ;;
+  arm64) OXKER_ASSET="oxker_linux_aarch64.tar.gz" ;;
+esac
+if [ ! -x /usr/local/bin/oxker ] \
+   || ! /usr/local/bin/oxker --version 2>&1 | grep -q "$OXKER_VER"; then
+  curl -fsSL "https://github.com/mrjackwills/oxker/releases/download/v$${OXKER_VER}/$${OXKER_ASSET}" \
+    | tar -xz -C /tmp oxker
+  install -m 0755 /tmp/oxker /usr/local/bin/oxker
+  rm -f /tmp/oxker
 fi
 
 # -----------------------------------------------------------------------------
@@ -848,7 +859,7 @@ fi
 #   cluster - k9s pointed at the read-only kubeconfig
 #   system  - htop
 #   jobs    - journalctl -f on the claude-job@*.service units
-#   docker  - ctop (containers, stats, logs, exec)
+#   docker  - oxker (containers, stats, logs, exec)
 #   cheats  - tmux/Linux cheatsheet (pr -m -t side-by-side)
 # The default auto-attach SSH session ('main') is untouched — only invoked
 # when the operator explicitly runs claude-dashboard.
@@ -878,7 +889,7 @@ tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
 tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
-tmux new-window   -t "$SESSION:" -n docker  'while true; do TERM=xterm-256color ctop; sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n docker  'while true; do oxker; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
@@ -963,7 +974,7 @@ cat > /usr/local/share/cheat-tmux.txt <<'CHEATEOF'
   C-b 2            cluster (k9s)
   C-b 3            system (htop)
   C-b 4            jobs   (journalctl)
-  C-b 5            docker (ctop)
+  C-b 5            docker (oxker)
   C-b 6            cheats (this page)
 CHEATEOF
 chmod 0644 /usr/local/share/cheat-tmux.txt
