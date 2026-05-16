@@ -878,7 +878,7 @@ tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
 tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
-tmux new-window   -t "$SESSION:" -n docker  'while true; do ctop; sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n docker  'while true; do TERM=xterm-256color ctop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
