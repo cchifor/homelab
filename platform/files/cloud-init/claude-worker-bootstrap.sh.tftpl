@@ -329,12 +329,20 @@ EOF
 cat > /etc/systemd/system/docker-weekly-restart.service <<'EOF'
 [Unit]
 Description=Weekly preventive restart of dockerd (mitigate slow memory growth)
-After=docker.service
-Requires=docker.service
+# Intentionally NO Requires=/After=docker.service. With Requires= in place,
+# the `systemctl restart docker.service` below caused systemd to propagate
+# the stop back to THIS unit (its ExecStart process was killed with
+# status=15/TERM), then re-queue it once docker came up — looping until
+# docker.service hit StartLimitBurst=3 and refused further starts.
+# try-restart instead of restart means: bounce only if currently running,
+# never start docker from a stopped state (that's docker.service's own job).
+# reset-failed clears any accumulated start-limit state so the unit is
+# self-healing if something else has tripped the limit during the week.
 
 [Service]
 Type=oneshot
-ExecStart=/bin/systemctl restart docker.service
+ExecStartPre=/bin/systemctl reset-failed docker.service docker.socket
+ExecStart=/bin/systemctl try-restart docker.service
 EOF
 cat > /etc/systemd/system/docker-weekly-restart.timer <<'EOF'
 [Unit]
