@@ -124,7 +124,7 @@ EOF
 chmod +x /etc/profile.d/00-tmux-attach.sh
 
 # Tmux config — vi copy mode, hjkl pane nav, Catppuccin Mocha status bar
-# with hostname / session / k8s-context / load / time. True-color through SSH.
+# with hostname / session / load / time. True-color through SSH.
 cat > /etc/skel/.tmux.conf <<'EOF'
 # ── core ───────────────────────────────────────────────────────────────
 set -g mouse on
@@ -168,8 +168,8 @@ set -g status-left-length 40
 set -g status-right-length 120
 # Hostname (bright cyan), session (bright green), separators (medium gray)
 set -g status-left  "#[fg=#5fd7ff,bold] #h #[fg=#767676]│#[fg=#5fff5f,bold] #S #[fg=#767676]│ "
-# k8s context (orange), load avg (bright yellow), date+time (pure white)
-set -g status-right "#[fg=#ff8700]k8s:#(kubectl config current-context 2>/dev/null || echo none) #[fg=#767676]│#[fg=#ffff5f] load:#(cut -d' ' -f1-3 /proc/loadavg) #[fg=#767676]│#[fg=#ffffff,bold] %a %H:%M "
+# load avg (bright yellow), date+time (pure white)
+set -g status-right "#[fg=#ffff5f]load:#(cut -d' ' -f1-3 /proc/loadavg) #[fg=#767676]│#[fg=#ffffff,bold] %a %H:%M "
 # Active window: black on gold (high contrast); inactive: subtle gray
 setw -g window-status-current-style "fg=#000000,bg=#ffd700,bold"
 setw -g window-status-current-format " #I:#W "
