@@ -47,6 +47,90 @@ if ! command -v /usr/local/bin/yq >/dev/null 2>&1; then
   chmod +x /usr/local/bin/yq
 fi
 
+# gh-dash — TUI dashboard for GitHub PRs/issues/runs. Installed as a standalone
+# binary so it works without `gh auth login` (the user still needs that once,
+# per-user, for gh-dash to actually fetch their data). Invoke as `gh-dash`
+# directly, or `gh dash` after `gh extension install dlvhdr/gh-dash`.
+# Release naming: gh-dash_vX.Y.Z_linux-{amd64,arm64} — raw binary, NOT a tarball.
+#
+# KNOWN ISSUE (v4.24.x): gh-dash's PR-preview sidebar panics under tmux's
+# tmux-256color TERM ("program experienced a panic" → stack ends in
+# internal/tui/markdown.GetMarkdownRenderer). Workaround: in ~/.config/gh-dash/
+# config.yml, set defaults.preview.open: false. The config file is auto-created
+# on first launch. We pre-seed it via /etc/skel below so new users get the
+# workaround automatically; existing users keep their config untouched.
+if ! command -v /usr/local/bin/gh-dash >/dev/null 2>&1; then
+  GH_DASH_VER=4.24.1
+  curl -sSLo /usr/local/bin/gh-dash \
+    "https://github.com/dlvhdr/gh-dash/releases/download/v$${GH_DASH_VER}/gh-dash_v$${GH_DASH_VER}_linux-$${ARCH_GO}"
+  chmod +x /usr/local/bin/gh-dash
+fi
+
+# Pre-seed gh-dash config: disable the panic-prone preview pane (see KNOWN ISSUE
+# above) AND drop the noisy "Needs My Review" / "Involved" PR sections that
+# default to non-empty filters for everyone. Partial config — gh-dash fills in
+# the rest of the defaults from its baked-in values on first run.
+install -d -m 0755 /etc/skel/.config/gh-dash
+cat > /etc/skel/.config/gh-dash/config.yml <<'EOF'
+prSections:
+  - title: My Pull Requests
+    filters: is:open author:@me
+defaults:
+  preview:
+    open: false      # workaround for v4.24.x markdown renderer panic under tmux-256color
+EOF
+for u in ${ssh_user} claude-agent; do
+  if [ ! -f /home/$u/.config/gh-dash/config.yml ]; then
+    install -d -m 0700 -o $u -g $u /home/$u/.config/gh-dash
+    install -m 0600 -o $u -g $u /etc/skel/.config/gh-dash/config.yml /home/$u/.config/gh-dash/config.yml
+  fi
+done
+
+# Companion helper for a GitHub Actions view (typical use: a tmux pane running
+# `watch -tc -n 15 gh-actions-fleet` below gh-dash in the github window).
+# Compact output — just a status icon + workflow name, color-coded.
+# Edit the REPOS array in-place to add more.
+# /tmp leak backstop: pattern-scoped daily cleanup of known test-residue dirs.
+# Skipped patterns like claude-*, gh-cli-cache, tmux-*, .X11-unix, systemd-private-*
+# are untouched. Triggered by systemd-tmpfiles-clean.timer (already enabled by
+# default systemd). The 1d age means dirs untouched for ≥24 h get GC'd.
+cat > /etc/tmpfiles.d/clean-test-residue.conf <<'EOF'
+# Purge known test-leak patterns from /tmp nightly. Pattern-scoped.
+d /tmp/forge-*      1777 root root 1d  -
+d /tmp/forge-dry-*  1777 root root 1d  -
+d /tmp/pytest-*     1777 root root 1d  -
+d /tmp/snap_*       1777 root root 1d  -
+EOF
+
+cat > /usr/local/bin/gh-actions-fleet <<'EOF'
+#!/usr/bin/env bash
+# Compact GitHub Actions view: status icon + workflow name only.
+REPOS=(cchifor/forge cchifor/platform)
+for r in "${REPOS[@]}"; do
+  printf '\033[1;36m═══ %s ═══\033[0m\n' "$r"
+  gh run list --repo "$r" --limit 10 \
+    --json conclusion,status,workflowName \
+    --jq '.[] | "\(.conclusion)|\(.status)|\(.workflowName)"' 2>/dev/null \
+  | while IFS='|' read -r conc status name; do
+      st="${conc:-$status}"   # in-progress runs report conclusion="" — fall back to status
+      case "$st" in
+        success)         printf '\033[32m✓\033[0m %s\n' "$name" ;;
+        failure)         printf '\033[31m✗\033[0m %s\n' "$name" ;;
+        cancelled)       printf '\033[35m∅\033[0m %s\n' "$name" ;;
+        skipped)         printf '\033[37m⊘\033[0m %s\n' "$name" ;;
+        timed_out)       printf '\033[31m⌛\033[0m %s\n' "$name" ;;
+        action_required) printf '\033[33m!\033[0m %s\n' "$name" ;;
+        neutral)         printf '\033[37m·\033[0m %s\n' "$name" ;;
+        startup_failure) printf '\033[31m⚠\033[0m %s\n' "$name" ;;
+        in_progress)     printf '\033[33m⋯\033[0m %s\n' "$name" ;;
+        queued)          printf '\033[33m·\033[0m %s\n' "$name" ;;
+        *)               printf '? %s\n' "$name" ;;
+      esac
+    done
+done
+EOF
+chmod 0755 /usr/local/bin/gh-actions-fleet
+
 # claude-agent user (no sudo, no shell login by default)
 if ! id claude-agent >/dev/null 2>&1; then
   adduser --system --group --shell /bin/bash --home /home/claude-agent claude-agent
@@ -864,15 +948,16 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Section 14: claude-dashboard launcher (6-window monitoring tmux session)
+# Section 14: claude-dashboard launcher (7-window monitoring tmux session)
 # -----------------------------------------------------------------------------
 # Typing 'claude-dashboard' builds (or attaches to) a separate tmux session
-# named 'sessions' with six named windows:
+# named 'sessions' with seven named windows, in this order:
 #   home    - shell at /workspace/$USER
-#   cluster - k9s pointed at the read-only kubeconfig
 #   system  - htop
 #   jobs    - journalctl -f on the claude-job@*.service units
+#   github  - split pane: gh dash (top, ~65%) + gh-actions-fleet watch (bottom)
 #   docker  - oxker (containers, stats, logs, exec)
+#   cluster - k9s pointed at the read-only kubeconfig
 #   cheats  - tmux/Linux cheatsheet (pr -m -t side-by-side)
 # The default auto-attach SSH session ('main') is untouched — only invoked
 # when the operator explicitly runs claude-dashboard.
@@ -898,12 +983,20 @@ fi
 # Every other long-lived window is wrapped in `while true; do CMD; sleep 0.5; done`
 # so a quit in k9s/htop/journalctl rebuilds the view instead of killing the
 # window (and shifting all the others by 1 because of renumber-windows on).
+# Order matters — windows are created in the order presented to the user.
+# github is split pane (gh dash on top, gh-actions-fleet watch on bottom);
+# both panes wrapped in retry loops so a panic (see KNOWN ISSUE in the gh-dash
+# block above) or a Ctrl-C re-launches instead of killing the pane and breaking
+# the window. Requires `gh auth login` to have been run once for the user.
 tmux new-session  -d -s "$SESSION" -n home -c "/workspace/$USER"
-tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n system  'while true; do htop; sleep 0.5; done'
 tmux new-window   -t "$SESSION:" -n jobs    'while true; do journalctl -u "claude-job@*.service" -f --no-pager 2>/dev/null || sudo journalctl -f; sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n github -c "/workspace/$USER" 'while true; do gh dash; sleep 0.5; done'
+tmux split-window -t "$SESSION:github" -v -l 35% 'while true; do watch -tc -n 15 gh-actions-fleet; sleep 0.5; done'
+tmux select-pane  -t "$SESSION:github.1"
 tmux new-window   -t "$SESSION:" -n docker  'while true; do oxker; sleep 0.5; done'
-tmux new-window   -t "$SESSION:" -n cheats   'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
+tmux new-window   -t "$SESSION:" -n cluster 'while true; do k9s --kubeconfig=$HOME/.kube/config 2>/dev/null || (echo "k9s unavailable; using watch fallback"; watch -n2 kubectl get pods -A); sleep 0.5; done'
+tmux new-window   -t "$SESSION:" -n cheats  'while true; do clear; pr -m -t -w $(tput cols) /usr/local/share/cheat-tmux.txt /usr/local/share/cheat-linux.txt | less -R; done'
 tmux select-window -t "$SESSION:home"
 exec tmux attach -t "$SESSION"
 EOF

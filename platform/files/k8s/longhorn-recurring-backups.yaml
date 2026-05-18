@@ -1,0 +1,62 @@
+# Longhorn RecurringJob CRDs — automated snapshots + backups to MinIO.
+#
+# Applied via kubectl_manifest in platform/main.tf (one per job) so the CRDs
+# are IaC-managed alongside the cluster.
+#
+# === Opt-in model ===
+# Each RecurringJob targets the "default" group. Volumes opt in by setting
+# the label:
+#   recurringjob-group.longhorn.io/default: "enabled"
+#
+# Opt in EVERYTHING (current 25 PVCs, takes a moment):
+#   for v in $(kubectl -n longhorn-system get volumes.longhorn.io \
+#                -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
+#     kubectl -n longhorn-system label --overwrite volumes.longhorn.io $v \
+#       recurringjob-group.longhorn.io/default=enabled
+#   done
+#
+# Or opt in selectively (e.g. just the irreplaceable ones — vaultwarden +
+# all postgres DBs). PVC → Longhorn volume name lookup:
+#   kubectl -n <ns> get pvc <name> -o jsonpath='{.spec.volumeName}'
+#
+# === Storage target ===
+# Uses the BackupTarget already configured via Terraform:
+#   s3://longhorn-backups@us-east-1/  →  MinIO LXC at 192.168.0.186:9000
+#
+# === Verification after applying ===
+#   kubectl -n longhorn-system get recurringjobs.longhorn.io
+#   # Wait for next cron, then check MinIO:
+#   kubectl -n longhorn-system get backups.longhorn.io
+#   # Or trigger a one-off backup of a single volume to smoke-test the path:
+#   #   Longhorn UI → Volume → Create Backup
+
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: nightly-snap
+  namespace: longhorn-system
+spec:
+  name: nightly-snap       # must match metadata.name (Longhorn admission webhook)
+  cron: "0 2 * * *"        # 02:00 daily
+  task: snapshot
+  groups: [default]
+  retain: 7                # 7 daily snapshots (a week of point-in-time)
+  concurrency: 2           # process two volumes at a time (ARM workers are modest)
+  labels:
+    type: nightly-snap
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: weekly-backup
+  namespace: longhorn-system
+spec:
+  name: weekly-backup      # must match metadata.name (Longhorn admission webhook)
+  cron: "0 0 * * 0"        # 00:00 UTC Sunday (= 03:00 local in EEST/Bucharest)
+  task: backup             # snapshot + push to MinIO
+  groups: [default]
+  retain: 4                # last 4 weekly backups in MinIO (~1 month of history)
+  concurrency: 1           # serialize to avoid saturating LAN ↔ MinIO
+  labels:
+    type: weekly-backup

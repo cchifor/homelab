@@ -1,0 +1,175 @@
+{
+  "uid": "incus-fleet",
+  "title": "Incus Fleet",
+  "tags": ["incus", "fleet", "hypervisor"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "version": 3,
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {"text": "Prometheus", "value": "prometheus"},
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100, "type": "row", "title": "Hypervisors (host-level — node_exporter on 4× Q6As)",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "collapsed": false
+    },
+    {
+      "id": 1, "type": "stat", "title": "Hypervisors Up",
+      "gridPos": {"x": 0, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "count(up{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"} == 1)", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "none", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 4}]}}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Physical CPU Cores",
+      "gridPos": {"x": 4, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "count(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "none"}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "Physical Memory",
+      "gridPos": {"x": 8, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum(node_memory_MemTotal_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 4, "type": "stat", "title": "Fleet CPU Used",
+      "gridPos": {"x": 12, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}[5m])))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 60}, {"color": "red", "value": 85}]}}}
+    },
+    {
+      "id": 5, "type": "stat", "title": "Fleet Memory Used",
+      "gridPos": {"x": 16, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "100 * (1 - sum(node_memory_MemAvailable_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}) / sum(node_memory_MemTotal_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}}}
+    },
+    {
+      "id": 6, "type": "stat", "title": "Fleet Load (1m avg sum)",
+      "gridPos": {"x": 20, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum(node_load1{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}}
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "CPU % per Hypervisor",
+      "gridPos": {"x": 0, "y": 5, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}[5m])))", "refId": "A", "legendFormat": "{{instance}}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Memory % per Hypervisor",
+      "gridPos": {"x": 12, "y": 5, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"} / node_memory_MemTotal_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A", "legendFormat": "{{instance}}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Root Disk Used % per Hypervisor",
+      "gridPos": {"x": 0, "y": 13, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "100 - 100 * node_filesystem_avail_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",mountpoint=\"/\",fstype!~\"tmpfs|ramfs|squashfs|overlay\"} / node_filesystem_size_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",mountpoint=\"/\"}", "refId": "A", "legendFormat": "{{instance}}"}],
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "Network per Hypervisor (RX+ / TX-)",
+      "gridPos": {"x": 12, "y": 13, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"expr": "sum by (instance) (rate(node_network_receive_bytes_total{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",device!~\"lo|docker.*|veth.*|cni.*|flannel.*|mac.*\"}[5m]))", "refId": "A", "legendFormat": "{{instance}} rx"},
+        {"expr": "-sum by (instance) (rate(node_network_transmit_bytes_total{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",device!~\"lo|docker.*|veth.*|cni.*|flannel.*|mac.*\"}[5m]))", "refId": "B", "legendFormat": "{{instance}} tx"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    },
+    {
+      "id": 200, "type": "row", "title": "Instances (VMs + containers — incus per-instance metrics)",
+      "gridPos": {"x": 0, "y": 21, "w": 24, "h": 1}, "collapsed": false
+    },
+    {
+      "id": 20, "type": "stat", "title": "Instances Running",
+      "gridPos": {"x": 0, "y": 22, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "count(count by (name) (incus_cpu_seconds_total))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "none"}}
+    },
+    {
+      "id": 21, "type": "stat", "title": "vCPUs Allocated to Instances",
+      "gridPos": {"x": 6, "y": 22, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum(count by (name) (count by (name, cpu) (incus_cpu_seconds_total)))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "none"}}
+    },
+    {
+      "id": 22, "type": "stat", "title": "Memory Allocated to Instances",
+      "gridPos": {"x": 12, "y": 22, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum(incus_memory_MemTotal_bytes)", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 23, "type": "stat", "title": "CPU Used by Instances (cores)",
+      "gridPos": {"x": 18, "y": 22, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum(rate(incus_cpu_seconds_total{mode!=\"idle\"}[5m]))", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}}
+    },
+    {
+      "id": 30, "type": "timeseries", "title": "CPU Rate per Instance (cores)",
+      "gridPos": {"x": 0, "y": 26, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "sum by (name, incus_node) (rate(incus_cpu_seconds_total{mode!=\"idle\"}[5m]))", "refId": "A", "legendFormat": "{{name}} ({{incus_node}})"}],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}}
+    },
+    {
+      "id": 31, "type": "timeseries", "title": "Memory Used per Instance",
+      "gridPos": {"x": 12, "y": 26, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "incus_memory_MemTotal_bytes - incus_memory_MemFree_bytes", "refId": "A", "legendFormat": "{{name}} ({{incus_node}})"}],
+      "fieldConfig": {"defaults": {"unit": "bytes"}}
+    },
+    {
+      "id": 32, "type": "timeseries", "title": "Disk I/O per Instance (RX+ / TX-)",
+      "gridPos": {"x": 0, "y": 34, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"expr": "sum by (name) (rate(incus_disk_read_bytes_total[5m]))", "refId": "A", "legendFormat": "{{name}} read"},
+        {"expr": "-sum by (name) (rate(incus_disk_written_bytes_total[5m]))", "refId": "B", "legendFormat": "{{name}} write"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    },
+    {
+      "id": 33, "type": "timeseries", "title": "Network per Instance (RX+ / TX-)",
+      "gridPos": {"x": 12, "y": 34, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"expr": "sum by (name) (rate(incus_network_receive_bytes_total[5m]))", "refId": "A", "legendFormat": "{{name}} rx"},
+        {"expr": "-sum by (name) (rate(incus_network_transmit_bytes_total[5m]))", "refId": "B", "legendFormat": "{{name}} tx"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps"}}
+    },
+    {
+      "id": 40, "type": "table", "title": "Instances Inventory",
+      "gridPos": {"x": 0, "y": 42, "w": 24, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [{"expr": "count by (name, type, project, incus_node) (count by (name, type, project, incus_node, cpu) (incus_cpu_seconds_total))", "refId": "A", "format": "table", "instant": true}],
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "cluster": true}, "renameByName": {"name": "Instance", "incus_node": "Hypervisor", "project": "Project", "type": "Type", "Value": "vCPUs"}}}
+      ]
+    }
+  ]
+}

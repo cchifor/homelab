@@ -1,36 +1,39 @@
-# Incus init preseed for the q6a-1 hypervisor host.
-# Usage on the host (Radxa OS, after rsetup-enabled KVM):
+# Incus init preseed for the q6a-1 dedicated hypervisor host (192.168.0.174).
 #
+# This is the AS-DEPLOYED config on q6a-1. The 2026-05-03 plan called for
+# ZFS storage on a dedicated partition and a Radxa-OS reflash — neither
+# happened. q6a-1 runs Armbian with Incus 7.0 on dir-backed storage in the
+# existing ext4 root, and KVM is enabled via the Qualcomm UEFI Setup:
+#   F2 during boot splash → Hypervisor Settings → Hypervisor Override →
+#   enable → save & exit. Setting persists in UEFI NVRAM across OS
+#   reinstalls, so the same Q6A board needs this toggled exactly once.
+#
+# For Q6A workers that ALSO run k3s on bare metal (q6a-2/3/4), use
+# preseed-worker.yaml — same shape, scoped for dormant standby capacity.
+#
+# Apply on the host (Armbian/Debian, after UEFI Hypervisor Override):
 #   sudo apt install -y incus incus-ui-canonical qemu-system-arm qemu-utils bridge-utils
 #   sudo incus admin init --preseed < /path/to/preseed.yaml
 #
-# Before piping it in, REPLACE the two <…> placeholders below:
-#   <ZFS_POOL_SOURCE>  → e.g. /dev/nvme0n1p3  (an unformatted partition; resize
-#                        nvme0n1p2 down first with parted/gparted to leave free
-#                        space, then `parted /dev/nvme0n1 mkpart primary <start> <end>`)
-#   <LAN_PARENT_IFACE> → name of the host's LAN NIC (run `ip -br link` on q6a-1;
-#                        common names: eth0, end0, enP3s0, enp1s0)
-#
-# Server: bind the HTTPS API on all interfaces so the web UI is reachable from
-# the operator workstation at https://192.168.0.174:8443. Trust password is set
-# interactively after init via `incus config trust add` (preferred over storing
-# a password in this file).
+# Then the web UI is reachable from the operator workstation at
+# https://192.168.0.174:8443. Optional Authentik OIDC integration was added
+# post-init via `incus config set oidc.issuer ...` + `oidc.client.id ...`
+# (not preseeded — would require the Authentik client to exist first).
 
 config:
   core.https_address: "[::]:8443"
 
 storage_pools:
   - name: default
-    driver: zfs
+    driver: dir
     config:
-      source: <ZFS_POOL_SOURCE>
-      zfs.pool_name: incus
+      source: /var/lib/incus/storage-pools/default
 
 networks: []
 
 profiles:
   - name: default
-    description: "Default profile: root disk on ZFS, macvlan NIC bridged to LAN"
+    description: "Default profile: dir storage + macvlan NIC on enp1s0"
     devices:
       root:
         type: disk
@@ -39,7 +42,7 @@ profiles:
       eth0:
         type: nic
         nictype: macvlan
-        parent: <LAN_PARENT_IFACE>
+        parent: enp1s0
 
 projects: []
 cluster: null

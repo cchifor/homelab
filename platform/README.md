@@ -305,6 +305,143 @@ Then `tofu apply`. Existing workers are NOT churned (the `for_each` is keyed by 
 
 ---
 
+## Install Incus on workers (dormant standby capacity)
+
+Every Q6A worker can also run Incus 7.0 as a side-by-side hypervisor — k3s stays the primary workload, Incus sits idle (~50 MiB RAM overhead) until you spin up an ad-hoc VM on a worker. q6a-1 is already a dedicated Incus hypervisor (hosting `claude-worker-2`); this section installs Incus on q6a-2/3/4 alongside their k3s-agent.
+
+**Prereq (USER, physical, one-time per node):** enable KVM in the Qualcomm UEFI.
+
+1. Connect HDMI + USB keyboard to the Q6A
+2. Reboot the node
+3. Press **F2** during the Qualcomm UEFI splash
+4. Navigate **Hypervisor Settings → Hypervisor Override** → enable
+5. Save & exit
+
+The setting persists in UEFI NVRAM across OS reinstalls. Verify after reboot:
+
+```bash
+ssh c4@<addr> 'ls /dev/kvm && dmesg | grep -E "CPU.*EL2|VHE mode"'
+# Expect: crw-rw---- root kvm + "CPU: All CPU(s) started at EL2"
+```
+
+**Operator-side install (batched):**
+
+```bash
+bash scripts/install-incus-workers.sh
+```
+
+Idempotent: safe to re-run; each step is checked-before-acted. Flags:
+
+- `--only q6a-2` — single node (for staged rollout or retrying a failure)
+- `--ssh-key /path/to/key` — override the key from `cluster.conf`
+
+After install, each worker exposes the Incus web UI at `https://<worker-ip>:8443`. No VMs run by default. The macvlan profile sits on `enp1s0` (same NIC as flannel's VXLAN transport, different L2 entities — they coexist), so any future VM gets a LAN-routable IP.
+
+**Spin up a side VM** (after re-logging in so `c4` picks up the `incus-admin` group):
+
+```bash
+ssh c4@192.168.0.200
+incus launch images:debian/12 my-vm --vm \
+  -c limits.cpu=2 -c limits.memory=2GiB \
+  -d root,size=5GiB
+incus list
+```
+
+**If a worker ever needs a full k3s teardown** (e.g., to upgrade Incus or reflash): drain → `/usr/local/bin/k3s-agent-uninstall.sh` → `terraform apply -replace='null_resource.bootstrap_worker["<name>"]'` to re-add. `/var/lib/longhorn/` survives the uninstall, so Longhorn re-adopts replicas after rejoin.
+
+**Two preseed variants:**
+- `files/incus/preseed-worker.yaml` — alongside k3s (this section)
+- `files/incus/preseed.yaml` — dedicated hypervisor (q6a-1's config)
+
+### Single-pane-of-glass cluster (Proxmox-style)
+
+After all four Q6As have Incus 7.0 installed, they're joined into a **single Incus cluster** so any node's web UI shows every node + every instance, OIDC auth replicates fleet-wide, and `incus launch --target q6a-N` from anywhere works. q6a-1 is the bootstrap leader (has the existing `claude-worker-2`); the others were re-initialised from empty to join.
+
+**Recommended access:** `https://192.168.0.174:8443` (q6a-1). It already has OIDC against Authentik — log in with your `authentik.chifor.dev` session and you'll see the entire cluster. The other nodes' URLs work too but require either OIDC redirect-URI whitelisting in Authentik for each, or a TLS-trust handshake.
+
+```bash
+# Status from any cluster member:
+ssh c4@<any-node> 'sudo incus cluster list'
+# Spin a VM on a specific node:
+incus launch images:debian/12 my-vm --vm --target q6a-3 \
+  -c limits.cpu=2 -c limits.memory=2GiB -d root,size=5GiB
+```
+
+**Adding a 5th hypervisor later** (after running `prep-worker-incus.sh` on it):
+
+```bash
+# 1. On the new node — wipe the standalone Incus state so the join can take cluster's spec:
+ssh c4@<new-ip> 'sudo systemctl stop incus.service incus.socket && \
+                  sudo rm -rf /var/lib/incus && \
+                  sudo systemctl start incus.socket'
+
+# 2. Generate a join token from any existing member:
+TOKEN=$(ssh c4@192.168.0.174 'sudo incus cluster add q6a-5 --quiet')
+
+# 3. Apply join preseed on the new node:
+cat <<EOF | ssh c4@<new-ip> 'sudo incus admin init --preseed'
+cluster:
+  enabled: true
+  server_name: q6a-5
+  server_address: <new-ip>:8443
+  cluster_address: 192.168.0.174:8443
+  cluster_token: $TOKEN
+  member_config:
+  - entity: storage-pool
+    name: default
+    key: source
+    value: /var/lib/incus/storage-pools/default
+EOF
+```
+
+**Caveats kept in the cluster docs for future-you:**
+- Storage is per-member (`dir` driver) — each node's pool source lives in its own `/var/lib/incus/storage-pools/default`. The cluster gives unified _management_, not unified _storage_. Live migration requires shared storage (Ceph/NFS); offline migration via `incus move` works for `dir` pools.
+- Dqlite quorum: 3 voting members (q6a-1/2/3) + 1 standby (q6a-4). 1 node down = degraded, 2 down = read-only.
+- All nodes must run the same Incus version (currently 7.0). Upgrades are rolling but supervised.
+- Inter-VLAN routing for q6a-4 (192.168.1.167) must allow TCP 8443 both ways — confirmed working at setup time.
+
+---
+
+## Longhorn backups + auto-balance (post-2026-05-17 hardening)
+
+After the May 17 cluster rebuild, two safety nets are in place:
+
+**1. `replica-auto-balance = best-effort`** (set via `kubectl -n longhorn-system patch settings.longhorn.io replica-auto-balance --type=merge -p '{"value":"best-effort"}'`). With `longhorn_replica_count = 3`, each volume keeps a replica on every worker — single-node outages stay degraded instead of faulted, and node removals automatically rebalance.
+
+**2. Scheduled snapshots + weekly MinIO backups via Longhorn RecurringJobs.** Defined in `files/k8s/longhorn-recurring-backups.yaml`:
+
+- `nightly-snap` — 02:00 UTC daily snapshot, retain 7 (a week of point-in-time)
+- `weekly-backup` — 00:00 UTC Sunday backup to MinIO, retain 4 (~1 month of history)
+
+Longhorn's cron parser uses **UTC** (not the cluster's local timezone). 00:00 UTC = 03:00 local in EEST/Bucharest, picked to avoid daytime LAN saturation. Shift the cron in `files/k8s/longhorn-recurring-backups.yaml` if you want different.
+
+Apply / re-apply:
+
+```bash
+kubectl apply -f files/k8s/longhorn-recurring-backups.yaml
+kubectl -n longhorn-system get recurringjobs.longhorn.io
+```
+
+**Opt-in is per-volume** via a label. Both jobs target the `default` group, so a volume opts in by setting `recurringjob-group.longhorn.io/default: enabled`. Bulk opt-in for everything:
+
+```bash
+for v in $(kubectl -n longhorn-system get volumes.longhorn.io \
+             -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
+  kubectl -n longhorn-system label --overwrite volumes.longhorn.io $v \
+    recurringjob-group.longhorn.io/default=enabled
+done
+```
+
+Verify a backup ran (after Sunday 03:00 UTC):
+```bash
+kubectl -n longhorn-system get backups.longhorn.io
+# Or trigger an immediate one-off from the Longhorn UI: Volume → Take Snapshot → Create Backup
+```
+
+**Not yet IaC-managed.** The RecurringJob CRDs are currently kubectl-applied. To bring them under Terraform: add `kubectl_file_documents` + `kubectl_manifest` blocks in `main.tf` (same pattern as `claude_agent_rbac`), then `terraform import` each existing RecurringJob to avoid a "resource already exists" conflict.
+
+---
+
 ## Verification
 
 With `$env:KUBECONFIG = "$PWD\kubeconfig"` (PowerShell) or `KUBECONFIG=$PWD/kubeconfig` (bash):

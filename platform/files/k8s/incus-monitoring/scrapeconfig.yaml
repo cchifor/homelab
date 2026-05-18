@@ -1,0 +1,69 @@
+# Prometheus ScrapeConfig — scrapes Incus metrics endpoint on each cluster member.
+#
+# Each Incus member exposes /1.0/metrics over HTTPS with mTLS. The client cert
+# is registered on the Incus cluster with `--type=metrics` (scoped trust: can
+# read metrics, cannot create/modify VMs, cannot read secrets).
+#
+# The cert+key live in Secret `incus-scrape-tls` (monitoring/), referenced
+# here. Server cert verification is OFF (LAN traffic + mTLS client auth is
+# what matters); tighten by adding `ca` to tlsConfig if you ever route this
+# off-LAN.
+#
+# Picked up by the kube-prometheus-stack Prometheus CR via its
+# scrapeConfigSelector = release=kube-prometheus-stack.
+
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: incus-cluster
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  jobName: incus
+  scheme: HTTPS
+  metricsPath: /1.0/metrics
+  scrapeInterval: 30s
+  scrapeTimeout: 15s
+  honorLabels: false
+  staticConfigs:
+    - targets:
+        - 192.168.0.174:8443
+        - 192.168.0.200:8443
+        - 192.168.0.129:8443
+        - 192.168.1.167:8443
+      labels:
+        cluster: home-lab
+  tlsConfig:
+    insecureSkipVerify: true
+    cert:
+      secret:
+        name: incus-scrape-tls
+        key: client.crt
+    keySecret:
+      name: incus-scrape-tls
+      key: client.key
+  relabelings:
+    # Map target IP -> friendly node name so dashboards show q6a-1/2/3/4
+    # rather than raw IPs.
+    - sourceLabels: [__address__]
+      regex: 192\.168\.0\.174:8443
+      targetLabel: incus_node
+      replacement: q6a-1
+    - sourceLabels: [__address__]
+      regex: 192\.168\.0\.200:8443
+      targetLabel: incus_node
+      replacement: q6a-2
+    - sourceLabels: [__address__]
+      regex: 192\.168\.0\.129:8443
+      targetLabel: incus_node
+      replacement: q6a-3
+    - sourceLabels: [__address__]
+      regex: 192\.168\.1\.167:8443
+      targetLabel: incus_node
+      replacement: q6a-4
+    # Cleaner instance label
+    - sourceLabels: [__address__]
+      regex: ([^:]+):.*
+      targetLabel: instance
+      replacement: $1

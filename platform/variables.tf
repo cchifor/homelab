@@ -320,8 +320,8 @@ variable "longhorn_namespace" {
 
 variable "longhorn_replica_count" {
   type        = number
-  default     = 2
-  description = "Default volume replica count. With 4 workers, 2 leaves headroom; 3 is also fine."
+  default     = 3
+  description = "Default volume replica count. With 3 worker nodes (q6a-2/3/4) we run 3 — one replica per node — so any single-node outage stays at degraded, not faulted. Was 2 originally; bumped after the 2026-05-17 incident where q6a-1's removal left half the volumes single-replica and q6a-3's overload then risked data loss."
 }
 
 variable "longhorn_default_storage_class_name" {
@@ -683,8 +683,9 @@ variable "claude_worker_memory_mb" {
 }
 
 variable "claude_worker_root_disk" {
-  type    = string
-  default = "16G"
+  type        = string
+  default     = "32G"
+  description = "Root disk for the claude-worker VM. Bumped 16G → 32G on 2026-05-18 after a forge dry-run blew through /tmp (~5 GiB of forge-dry-* dirs) and filled the root partition. 32G gives ~22G headroom over the OS footprint."
 }
 
 variable "claude_worker_data_disk" {
