@@ -80,19 +80,40 @@ PING_MONITORS = [
     {"group": "Infrastructure", "name": "NAS LXC (MinIO)", "host": "192.168.0.186"},
     {"group": "Infrastructure", "name": "k3s server",   "host": "192.168.0.187"},
     {"group": "Infrastructure", "name": "OpenClaw LXC", "host": "192.168.0.189"},
-    # Workers' actual IPs are DHCP-assigned, not the .191-.194 range from the
-    # original plan. Source of truth is `kubectl get nodes -o wide`. q6a-4
-    # lives on a different /24 (probably an SSID on the access-point bridge),
-    # but it's still reachable from cluster pods over the LAN.
-    {"group": "Infrastructure", "name": "Worker q6a-1", "host": "192.168.0.174"},
-    {"group": "Infrastructure", "name": "Worker q6a-2", "host": "192.168.0.200"},
-    {"group": "Infrastructure", "name": "Worker q6a-3", "host": "192.168.0.129"},
-    {"group": "Infrastructure", "name": "Worker q6a-4", "host": "192.168.1.167"},
+    # Workers — unified rdxa1..4 / .131-.134 scheme since 2026-05-19 (the
+    # earlier q6a-1..4 / .174/.200/.129/.1.167 layout was renumbered onto the
+    # primary .0.0/23 LAN). If you re-run this script and previously had
+    # "Worker q6a-*" monitors, delete them via the UI first OR run the
+    # companion cleanup snippet at the bottom of this file.
+    {"group": "Infrastructure", "name": "Worker rdxa1", "host": "192.168.0.131"},
+    {"group": "Infrastructure", "name": "Worker rdxa2", "host": "192.168.0.132"},
+    {"group": "Infrastructure", "name": "Worker rdxa3", "host": "192.168.0.133"},
+    {"group": "Infrastructure", "name": "Worker rdxa4", "host": "192.168.0.134"},
+    # claude-worker VMs running in Incus on each rdxa host (.14N maps to rdxaN).
+    {"group": "Infrastructure", "name": "claude-worker-1", "host": "192.168.0.141"},
+    {"group": "Infrastructure", "name": "claude-worker-2", "host": "192.168.0.142"},
+    {"group": "Infrastructure", "name": "claude-worker-3", "host": "192.168.0.143"},
+    {"group": "Infrastructure", "name": "claude-worker-4", "host": "192.168.0.144"},
 ]
 
 PORT_MONITORS = [
     {"group": "Infrastructure", "name": "MinIO S3",  "host": "192.168.0.186", "port": 9000},
     {"group": "Infrastructure", "name": "k3s API",   "host": "192.168.0.187", "port": 6443},
+    # Incus API on each rdxa host (web UI + cluster heartbeat port).
+    {"group": "Infrastructure", "name": "Incus rdxa1", "host": "192.168.0.131", "port": 8443},
+    {"group": "Infrastructure", "name": "Incus rdxa2", "host": "192.168.0.132", "port": 8443},
+    {"group": "Infrastructure", "name": "Incus rdxa3", "host": "192.168.0.133", "port": 8443},
+    {"group": "Infrastructure", "name": "Incus rdxa4", "host": "192.168.0.134", "port": 8443},
+]
+
+# Stale monitors from the pre-2026-05-19 naming. When the script runs against
+# a live Kuma that still has these, delete-by-name first. Idempotent: missing
+# names are skipped silently.
+STALE_MONITORS = [
+    "Worker q6a-1",
+    "Worker q6a-2",
+    "Worker q6a-3",
+    "Worker q6a-4",
 ]
 
 
@@ -103,6 +124,14 @@ def main():
 
         existing = {m["name"]: m for m in api.get_monitors()}
         print(f"  found {len(existing)} existing monitor(s)")
+
+        # 0. Delete stale monitors from the pre-rename scheme. Idempotent —
+        # names that don't exist are skipped.
+        for name in STALE_MONITORS:
+            if name in existing:
+                api.delete_monitor(existing[name]["id"])
+                print(f"  - removed stale monitor {name!r}")
+                del existing[name]
 
         # 1. Group monitors (parents) — collect the unique set we'll need.
         wanted_groups = sorted({m["group"] for m in HTTP_MONITORS + PING_MONITORS + PORT_MONITORS})
