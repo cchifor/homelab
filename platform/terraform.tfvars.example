@@ -39,10 +39,10 @@ cp_ssh_private_key_path = "~/.ssh/id_ed25519"
 # Easiest path: don't set this here at all — let scripts/check-prereqs.sh
 # regenerate terraform.tfvars from the WORKERS env var (or its built-in default).
 # workers = {
-#   q6a-1 = { name = "q6a-1", address = "192.168.0.174", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
-#   q6a-2 = { name = "q6a-2", address = "192.168.0.200", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
-#   q6a-3 = { name = "q6a-3", address = "192.168.0.129", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
-#   q6a-4 = { name = "q6a-4", address = "192.168.1.167", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+#   rdxa1 = { name = "rdxa1", address = "192.168.0.131", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+#   rdxa2 = { name = "rdxa2", address = "192.168.0.132", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+#   rdxa3 = { name = "rdxa3", address = "192.168.0.133", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+#   rdxa4 = { name = "rdxa4", address = "192.168.0.134", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
 # }
 
 # --- Plex (optional — flip plex_enabled=true to deploy) ---

@@ -13,7 +13,7 @@ OpenTofu project that provisions a hybrid k3s cluster on Proxmox VE 8+ and four 
 | cert-manager + ClusterIssuer | k8s | self-signed `selfsigned-issuer` |
 | Rancher | k8s namespace `cattle-system` | Hostname `rancher.lan` → `192.168.0.187` |
 
-LAN: primary `192.168.0.0/24`, with worker `q6a-4` reachable on `192.168.1.0/24` via inter-VLAN routing. Host `192.168.0.185`, NAS `192.168.0.186`, control plane `192.168.0.187`, workers at `192.168.0.174`, `192.168.0.200`, `192.168.0.129`, and `192.168.1.167`.
+LAN: `192.168.0.0/23` (covers `.0.0–.1.255`). Host `192.168.0.185`, NAS `192.168.0.186`, control plane `192.168.0.187`. Workers `rdxa1..rdxa4` at `192.168.0.131–192.168.0.134` (unified scheme since 2026-05-19). Each rdxa host runs k3s-agent + Incus side-by-side; the claude-worker VMs (when present) live at `192.168.0.141–192.168.0.144`.
 
 ---
 
@@ -220,7 +220,7 @@ The `-t` flag allocates a PTY so sudo can prompt for the password. **Don't use t
 
 **All workers sequentially** (replace IPs with yours):
 ```bash
-for h in 192.168.0.174 192.168.0.200 192.168.0.129 192.168.1.167; do
+for h in 192.168.0.131 192.168.0.132 192.168.0.133 192.168.0.134; do
   echo "=== $h ==="
   scp scripts/prep-worker.sh c4@"$h":/tmp/prep-worker.sh
   ssh -t c4@"$h" 'sudo bash /tmp/prep-worker.sh; rm -f /tmp/prep-worker.sh'
@@ -293,11 +293,11 @@ Edit `terraform.tfvars`, append one map entry:
 
 ```hcl
 workers = {
-  q6a-1 = { name = "q6a-1", address = "192.168.0.174", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
-  q6a-2 = { name = "q6a-2", address = "192.168.0.200", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
-  q6a-3 = { name = "q6a-3", address = "192.168.0.129", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
-  q6a-4 = { name = "q6a-4", address = "192.168.1.167", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
-  q6a-5 = { name = "q6a-5", address = "192.168.0.175", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+  rdxa1 = { name = "rdxa1", address = "192.168.0.131", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+  rdxa2 = { name = "rdxa2", address = "192.168.0.132", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+  rdxa3 = { name = "rdxa3", address = "192.168.0.133", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+  rdxa4 = { name = "rdxa4", address = "192.168.0.134", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
+  rdxa5 = { name = "rdxa5", address = "192.168.0.135", ssh_user = "c4", ssh_key = "~/.ssh/id_ed25519" }
 }
 ```
 
@@ -305,13 +305,13 @@ Then `tofu apply`. Existing workers are NOT churned (the `for_each` is keyed by 
 
 ---
 
-## Install Incus on workers (dormant standby capacity)
+## Install Incus on workers (alongside k3s)
 
-Every Q6A worker can also run Incus 7.0 as a side-by-side hypervisor — k3s stays the primary workload, Incus sits idle (~50 MiB RAM overhead) until you spin up an ad-hoc VM on a worker. q6a-1 is already a dedicated Incus hypervisor (hosting `claude-worker-2`); this section installs Incus on q6a-2/3/4 alongside their k3s-agent.
+Every rdxa host runs Incus 7.0 in cluster mode side-by-side with k3s-agent — k3s stays the primary workload, Incus shares CPU/memory (virtio-balloon lets the kernel reclaim VM RAM under pressure). The 4-node Incus cluster reformed at the new IPs (.131–.134) on 2026-05-19 after the rename caused dqlite/cert state corruption. The recovery procedure (wipe `/var/lib/incus/database/` + certs, `incus admin recover` against the surviving qcow2 files) is in the section below.
 
 **Prereq (USER, physical, one-time per node):** enable KVM in the Qualcomm UEFI.
 
-1. Connect HDMI + USB keyboard to the Q6A
+1. Connect HDMI + USB keyboard to the Radxa
 2. Reboot the node
 3. Press **F2** during the Qualcomm UEFI splash
 4. Navigate **Hypervisor Settings → Hypervisor Override** → enable
@@ -324,7 +324,7 @@ ssh c4@<addr> 'ls /dev/kvm && dmesg | grep -E "CPU.*EL2|VHE mode"'
 # Expect: crw-rw---- root kvm + "CPU: All CPU(s) started at EL2"
 ```
 
-**Operator-side install (batched):**
+**Operator-side install (batched, for fresh nodes only):**
 
 ```bash
 bash scripts/install-incus-workers.sh
@@ -332,16 +332,16 @@ bash scripts/install-incus-workers.sh
 
 Idempotent: safe to re-run; each step is checked-before-acted. Flags:
 
-- `--only q6a-2` — single node (for staged rollout or retrying a failure)
+- `--only rdxa3` — single node (for staged rollout or retrying a failure)
 - `--ssh-key /path/to/key` — override the key from `cluster.conf`
 
-After install, each worker exposes the Incus web UI at `https://<worker-ip>:8443`. No VMs run by default. The macvlan profile sits on `enp1s0` (same NIC as flannel's VXLAN transport, different L2 entities — they coexist), so any future VM gets a LAN-routable IP.
+After install, each worker exposes the Incus web UI at `https://<worker-ip>:8443`. The macvlan profile sits on `enp1s0` (same NIC as flannel's VXLAN transport, different L2 entities — they coexist), so any future VM gets a LAN-routable IP.
 
 **Spin up a side VM** (after re-logging in so `c4` picks up the `incus-admin` group):
 
 ```bash
-ssh c4@192.168.0.200
-incus launch images:debian/12 my-vm --vm \
+ssh c4@192.168.0.131
+incus launch images:debian/12/cloud my-vm --vm --target rdxa3 \
   -c limits.cpu=2 -c limits.memory=2GiB \
   -d root,size=5GiB
 incus list
@@ -349,21 +349,17 @@ incus list
 
 **If a worker ever needs a full k3s teardown** (e.g., to upgrade Incus or reflash): drain → `/usr/local/bin/k3s-agent-uninstall.sh` → `terraform apply -replace='null_resource.bootstrap_worker["<name>"]'` to re-add. `/var/lib/longhorn/` survives the uninstall, so Longhorn re-adopts replicas after rejoin.
 
-**Two preseed variants:**
-- `files/incus/preseed-worker.yaml` — alongside k3s (this section)
-- `files/incus/preseed.yaml` — dedicated hypervisor (q6a-1's config)
+### Single-pane-of-glass cluster
 
-### Single-pane-of-glass cluster (Proxmox-style)
+The 4 rdxa hosts are joined into a **single Incus cluster** so any node's web UI shows every node + every instance, OIDC auth replicates fleet-wide, and `incus launch --target rdxaN` from anywhere works. `rdxa1` is the current database-leader; `rdxa2/3` are voters, `rdxa4` is standby.
 
-After all four Q6As have Incus 7.0 installed, they're joined into a **single Incus cluster** so any node's web UI shows every node + every instance, OIDC auth replicates fleet-wide, and `incus launch --target q6a-N` from anywhere works. q6a-1 is the bootstrap leader (has the existing `claude-worker-2`); the others were re-initialised from empty to join.
-
-**Recommended access:** `https://192.168.0.174:8443` (q6a-1). It already has OIDC against Authentik — log in with your `authentik.chifor.dev` session and you'll see the entire cluster. The other nodes' URLs work too but require either OIDC redirect-URI whitelisting in Authentik for each, or a TLS-trust handshake.
+**Recommended access:** `https://192.168.0.131:8443` (rdxa1). OIDC against Authentik is configured — log in with your `authentik.chifor.dev` session and you'll see the entire cluster. The other nodes' URLs work too but require either OIDC redirect-URI whitelisting in Authentik for each, or a TLS-trust handshake.
 
 ```bash
 # Status from any cluster member:
 ssh c4@<any-node> 'sudo incus cluster list'
 # Spin a VM on a specific node:
-incus launch images:debian/12 my-vm --vm --target q6a-3 \
+incus launch images:debian/12/cloud my-vm --vm --target rdxa3 \
   -c limits.cpu=2 -c limits.memory=2GiB -d root,size=5GiB
 ```
 
@@ -372,33 +368,98 @@ incus launch images:debian/12 my-vm --vm --target q6a-3 \
 ```bash
 # 1. On the new node — wipe the standalone Incus state so the join can take cluster's spec:
 ssh c4@<new-ip> 'sudo systemctl stop incus.service incus.socket && \
-                  sudo rm -rf /var/lib/incus && \
+                  sudo rm -rf /var/lib/incus/database && \
                   sudo systemctl start incus.socket'
 
 # 2. Generate a join token from any existing member:
-TOKEN=$(ssh c4@192.168.0.174 'sudo incus cluster add q6a-5 --quiet')
+TOKEN=$(ssh c4@192.168.0.131 'sudo incus cluster add rdxa5 --quiet')
 
 # 3. Apply join preseed on the new node:
 cat <<EOF | ssh c4@<new-ip> 'sudo incus admin init --preseed'
 cluster:
   enabled: true
-  server_name: q6a-5
+  server_name: rdxa5
   server_address: <new-ip>:8443
-  cluster_address: 192.168.0.174:8443
+  cluster_address: 192.168.0.131:8443
   cluster_token: $TOKEN
   member_config:
   - entity: storage-pool
     name: default
     key: source
-    value: /var/lib/incus/storage-pools/default
+    value: ""
 EOF
 ```
 
-**Caveats kept in the cluster docs for future-you:**
-- Storage is per-member (`dir` driver) — each node's pool source lives in its own `/var/lib/incus/storage-pools/default`. The cluster gives unified _management_, not unified _storage_. Live migration requires shared storage (Ceph/NFS); offline migration via `incus move` works for `dir` pools.
-- Dqlite quorum: 3 voting members (q6a-1/2/3) + 1 standby (q6a-4). 1 node down = degraded, 2 down = read-only.
-- All nodes must run the same Incus version (currently 7.0). Upgrades are rolling but supervised.
-- Inter-VLAN routing for q6a-4 (192.168.1.167) must allow TCP 8443 both ways — confirmed working at setup time.
+**Caveats:**
+- Storage is per-member (`dir` driver) — each node's pool source is its own `/var/lib/incus/storage-pools/default`. The cluster gives unified _management_, not unified _storage_. Live migration requires shared storage (Ceph/NFS); offline migration via `incus move` works for `dir` pools.
+- Dqlite quorum: 3 voting members + 1 standby (rdxa4). 1 node down = degraded, 2 down = read-only.
+- All nodes must run the same Incus version (currently 7.0).
+- **Never renumber a clustered Incus member in place.** `cluster.https_address` is immutable via API and the cluster cert binds to original hostnames; the safe procedure is the cluster rebuild below.
+
+### Rebuilding the Incus cluster (after IP renumber, cert rotation, or quorum loss)
+
+This is the procedure followed on 2026-05-19 when the renumber-in-place attempt corrupted dqlite/raft state. It preserves VM disks (`storage-pools/default/virtual-machines/*`) and the custom volumes attached to them.
+
+1. **Shutdown VMs cleanly** (in-guest `sudo shutdown -h now`) — bypasses the broken `incus stop`.
+2. **Stop + mask Incus on all 4 nodes:**
+   ```bash
+   sudo systemctl stop incus incus.socket
+   sudo systemctl mask incus.socket
+   sudo pkill -9 -f incusd
+   ```
+3. **Backup + wipe DB and certs** on each node (storage pools and VM disks STAY):
+   ```bash
+   sudo cp -r /var/lib/incus/database /root/incus-pre-rebuild-$(date +%s)
+   sudo cp /var/lib/incus/{server,cluster}.{crt,key} /root/incus-pre-rebuild-*/
+   sudo rm -rf /var/lib/incus/database
+   sudo rm -f /var/lib/incus/{server,cluster}.{crt,key}
+   ```
+4. **Move existing storage-pool aside** on each node (the `dir` driver refuses to register a non-empty source path):
+   ```bash
+   sudo mv /var/lib/incus/storage-pools/default /var/lib/incus/storage-pools/_default_save
+   ```
+5. **Unmask + start Incus** on every node, then init the cluster bootstrap on `rdxa1`:
+   ```bash
+   sudo systemctl unmask incus.socket && sudo systemctl start incus
+   # preseed includes cluster.enabled=true + cluster.https_address + the default profile
+   sudo incus admin init --preseed < /tmp/preseed-bootstrap.yaml
+   ```
+6. **Merge the saved storage-pool back via mv** (instant on same FS — `rsync --remove-source-files` is far too slow on 32 GiB VM images):
+   ```bash
+   for d in buckets containers containers-snapshots custom custom-snapshots images virtual-machines virtual-machines-snapshots; do
+     sudo rm -rf "/var/lib/incus/storage-pools/default/$d"
+     sudo mv "/var/lib/incus/storage-pools/_default_save/$d" "/var/lib/incus/storage-pools/default/$d"
+   done
+   sudo rm -rf /var/lib/incus/storage-pools/_default_save
+   ```
+7. **Recover VMs:**
+   ```bash
+   printf "yes\nyes\n" | sudo incus admin recover
+   # finds backup.yaml under virtual-machines/<name>/, re-creates instance records
+   ```
+8. **Join the other 3 nodes** — generate a join token on rdxa1 per remote (`sudo incus cluster add rdxa2`), then `sudo incus admin init --preseed` on each with `cluster.cluster_token` + `cluster.cluster_address: 192.168.0.131:8443`. Repeat steps 6+7 on each joining node so its existing VM (if any) is recovered.
+9. **Clean up stale macvlan interfaces** on each node before starting VMs (the daemon's old `volatile.eth0.host_name` values still exist as kernel interfaces):
+   ```bash
+   ip -br link | grep mac.*@enp1s0 | awk '{print $1}' | cut -d@ -f1 | \
+     xargs -I{} sudo ip link delete {}
+   ```
+10. **Restore profile root disk + OIDC config** (the preseed-bootstrap omits the root disk so step 7 can register the pool without conflict):
+    ```bash
+    sudo incus profile device add default root disk path=/ pool=default
+    sudo incus config set oidc.client.id=<authentik-client-id>
+    sudo incus config set oidc.issuer=https://authentik.chifor.dev/application/o/incus/
+    sudo incus config set cluster.max_voters=5
+    ```
+11. **Start VMs** and verify they got their LAN IPs back:
+    ```bash
+    sudo incus start claude-worker-1 claude-worker-2 ...
+    sudo incus list
+    ```
+12. **Re-join k3s** for any host whose k3s node-name changed: `kubectl delete node <old-name>`, edit `/etc/systemd/system/k3s-agent.service.env` (set `K3S_NODE_NAME='<new-name>'`), `sudo rm /etc/rancher/node/password`, `sudo systemctl restart k3s-agent`. The node re-registers under its new identity.
+
+**Two preseed variants in the repo:**
+- `files/incus/preseed-worker.yaml` — alongside k3s (what every rdxa runs)
+- `files/incus/preseed.yaml` — standalone single-host reference (no cluster)
 
 ---
 
@@ -460,7 +521,7 @@ kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.n
 
 # Sysbox runtime registered on every node:
 ssh -i ~/.ssh/id_ed25519 debian@192.168.0.187 'sudo k3s crictl info 2>/dev/null | grep sysbox-runc'
-for h in 192.168.0.174 192.168.0.200 192.168.0.129 192.168.1.167; do
+for h in 192.168.0.131 192.168.0.132 192.168.0.133 192.168.0.134; do
   echo "=== $h ==="
   ssh -t -i ~/.ssh/id_ed25519 c4@"$h" 'sudo k3s crictl info 2>/dev/null | grep sysbox-runc'
 done
@@ -559,7 +620,7 @@ To verify Sysbox is registered on every node:
 ssh -i ~/.ssh/id_ed25519 debian@192.168.0.187 'sudo k3s crictl info 2>/dev/null | grep sysbox-runc'
 
 # Workers (c4 user with sudo password — `-t` for the prompt):
-for h in 192.168.0.174 192.168.0.200 192.168.0.129 192.168.1.167; do
+for h in 192.168.0.131 192.168.0.132 192.168.0.133 192.168.0.134; do
   echo "=== $h ==="
   ssh -t -i ~/.ssh/id_ed25519 c4@"$h" 'sudo k3s crictl info 2>/dev/null | grep sysbox-runc'
 done
@@ -612,8 +673,8 @@ kubectl -n dind exec -it dind-0 -- sh
 
 | Task | Command |
 |---|---|
-| Re-bootstrap a single worker | `tofu taint 'null_resource.bootstrap_worker["q6a-2"]' && tofu apply` |
-| Re-install Sysbox on a single node | `tofu taint 'null_resource.sysbox_install["q6a-2"]' && tofu apply` |
+| Re-bootstrap a single worker | `tofu taint 'null_resource.bootstrap_worker["rdxa2"]' && tofu apply` |
+| Re-install Sysbox on a single node | `tofu taint 'null_resource.sysbox_install["rdxa2"]' && tofu apply` |
 | Bump Sysbox version | edit `sysbox_version`, `tofu apply` (re-runs install on all nodes; brief k3s/k3s-agent restart per node) |
 | Bump Rancher chart | edit `rancher_chart_version`, `tofu apply` |
 | Rotate Rancher bootstrap password (BEFORE first login) | `tofu taint random_password.rancher_bootstrap && tofu apply` |

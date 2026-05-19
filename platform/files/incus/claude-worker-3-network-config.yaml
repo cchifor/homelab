@@ -1,5 +1,5 @@
-# Cloud-init Network Config v2 for claude-worker-2.
-# Static IP 192.168.0.142 — claude-worker-N maps to .14N in the unified scheme.
+# Cloud-init Network Config v2 for claude-worker-3.
+# Static IP 192.168.0.143 — claude-worker-N maps to .14N in the unified scheme.
 
 version: 2
 ethernets:
@@ -9,7 +9,7 @@ ethernets:
     set-name: enp5s0
     dhcp4: false
     addresses:
-      - 192.168.0.142/23
+      - 192.168.0.143/23
     gateway4: 192.168.0.1
     nameservers:
       addresses:

@@ -28,10 +28,10 @@ spec:
   honorLabels: false
   staticConfigs:
     - targets:
-        - 192.168.0.174:8443
-        - 192.168.0.200:8443
-        - 192.168.0.129:8443
-        - 192.168.1.167:8443
+        - 192.168.0.131:8443
+        - 192.168.0.132:8443
+        - 192.168.0.133:8443
+        - 192.168.0.134:8443
       labels:
         cluster: home-lab
   tlsConfig:
@@ -44,24 +44,24 @@ spec:
       name: incus-scrape-tls
       key: client.key
   relabelings:
-    # Map target IP -> friendly node name so dashboards show q6a-1/2/3/4
+    # Map target IP -> friendly node name so dashboards show rdxa1/2/3/4
     # rather than raw IPs.
     - sourceLabels: [__address__]
-      regex: 192\.168\.0\.174:8443
+      regex: 192\.168\.0\.131:8443
       targetLabel: incus_node
-      replacement: q6a-1
+      replacement: rdxa1
     - sourceLabels: [__address__]
-      regex: 192\.168\.0\.200:8443
+      regex: 192\.168\.0\.132:8443
       targetLabel: incus_node
-      replacement: q6a-2
+      replacement: rdxa2
     - sourceLabels: [__address__]
-      regex: 192\.168\.0\.129:8443
+      regex: 192\.168\.0\.133:8443
       targetLabel: incus_node
-      replacement: q6a-3
+      replacement: rdxa3
     - sourceLabels: [__address__]
-      regex: 192\.168\.1\.167:8443
+      regex: 192\.168\.0\.134:8443
       targetLabel: incus_node
-      replacement: q6a-4
+      replacement: rdxa4
     # Cleaner instance label
     - sourceLabels: [__address__]
       regex: ([^:]+):.*

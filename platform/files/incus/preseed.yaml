@@ -1,24 +1,24 @@
-# Incus init preseed for the q6a-1 dedicated hypervisor host (192.168.0.174).
+# Incus init preseed — standalone (non-cluster) variant, retained for reference.
 #
-# This is the AS-DEPLOYED config on q6a-1. The 2026-05-03 plan called for
-# ZFS storage on a dedicated partition and a Radxa-OS reflash — neither
-# happened. q6a-1 runs Armbian with Incus 7.0 on dir-backed storage in the
-# existing ext4 root, and KVM is enabled via the Qualcomm UEFI Setup:
-#   F2 during boot splash → Hypervisor Settings → Hypervisor Override →
-#   enable → save & exit. Setting persists in UEFI NVRAM across OS
-#   reinstalls, so the same Q6A board needs this toggled exactly once.
+# The home-lab actually runs Incus in CLUSTER mode across rdxa1..rdxa4 since
+# 2026-05-19 (rebuild after a cert/raft state corruption following hostname/IP
+# renumbering — see ../../docs/PLAN.md). The cluster was reformed by hand on
+# rdxa1 with `incus admin init --preseed` + `cluster.enabled=true`, then
+# rdxa2/3/4 joined via tokens. See README.md "Rebuilding the Incus cluster"
+# for the live procedure.
 #
-# For Q6A workers that ALSO run k3s on bare metal (q6a-2/3/4), use
-# preseed-worker.yaml — same shape, scoped for dormant standby capacity.
+# Use preseed-worker.yaml for the same shape applied via the orchestrator
+# scripts/install-incus-workers.sh — that variant runs alongside k3s and is
+# what we deploy when reflashing a node.
 #
-# Apply on the host (Armbian/Debian, after UEFI Hypervisor Override):
+# Apply on the host (Armbian/Debian, after UEFI Hypervisor Override —
+# F2 → Hypervisor Settings → Hypervisor Override → enable → save):
 #   sudo apt install -y incus incus-ui-canonical qemu-system-arm qemu-utils bridge-utils
 #   sudo incus admin init --preseed < /path/to/preseed.yaml
 #
-# Then the web UI is reachable from the operator workstation at
-# https://192.168.0.174:8443. Optional Authentik OIDC integration was added
-# post-init via `incus config set oidc.issuer ...` + `oidc.client.id ...`
-# (not preseeded — would require the Authentik client to exist first).
+# Web UI is then reachable at https://<node-ip>:8443. OIDC against Authentik
+# was added post-init via `incus config set oidc.issuer ...` +
+# `oidc.client.id ...` (not preseeded — requires the Authentik client first).
 
 config:
   core.https_address: "[::]:8443"

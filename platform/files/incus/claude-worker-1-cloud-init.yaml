@@ -1,0 +1,37 @@
+#cloud-config
+# Cloud-init user-data for the claude-worker-1 VM (target: rdxa1 in the 4-node
+# Incus cluster). Runs alongside k3s-agent on the host with shared CPU/memory
+# (virtio-balloon lets the kernel reclaim RAM under pressure).
+#
+# Launch (run from any cluster member, e.g. rdxa1):
+#   incus launch images:debian/12/cloud claude-worker-1 --target rdxa1 --vm \
+#     -c limits.cpu=6 -c limits.memory=6GiB \
+#     -d root,size=32GiB \
+#     -c cloud-init.user-data="$(cat platform/files/incus/claude-worker-1-cloud-init.yaml)" \
+#     -c cloud-init.network-config="$(cat platform/files/incus/claude-worker-1-network-config.yaml)"
+#   incus config device add claude-worker-1 data disk pool=default size=48GiB
+#   incus config set claude-worker-1 boot.autostart=true
+
+hostname: claude-worker-1
+manage_etc_hosts: true
+fqdn: claude-worker-1.lan
+
+users:
+  - name: c4
+    groups: [sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC0tNhxNAEUrKfr/iyjerdyvrntXQbGj05kU+ein0HNV chifor@gmail.com
+
+# Keep the package layer minimal — the claude-worker-bootstrap.sh.tftpl
+# script (copied in via scp after first boot) handles every other package and
+# service. Just bring up the QEMU guest agent so Incus can introspect the VM,
+# plus the SSH server already present on the Debian cloud image.
+package_update: true
+packages:
+  - qemu-guest-agent
+
+runcmd:
+  - systemctl enable --now qemu-guest-agent
+  - systemctl enable --now ssh

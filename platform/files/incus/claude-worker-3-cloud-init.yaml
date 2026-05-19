@@ -1,20 +1,20 @@
 #cloud-config
-# Cloud-init user-data for the claude-worker-2 VM (target: rdxa2 in the 4-node
+# Cloud-init user-data for the claude-worker-3 VM (target: rdxa3 in the 4-node
 # Incus cluster). Runs alongside k3s-agent on the host with shared CPU/memory
 # (virtio-balloon lets the kernel reclaim RAM under pressure).
 #
 # Launch (run from any cluster member, e.g. rdxa1):
-#   incus launch images:debian/12/cloud claude-worker-2 --target rdxa2 --vm \
+#   incus launch images:debian/12/cloud claude-worker-3 --target rdxa3 --vm \
 #     -c limits.cpu=6 -c limits.memory=6GiB \
 #     -d root,size=32GiB \
-#     -c cloud-init.user-data="$(cat platform/files/incus/claude-worker-2-cloud-init.yaml)" \
-#     -c cloud-init.network-config="$(cat platform/files/incus/claude-worker-2-network-config.yaml)"
-#   incus config device add claude-worker-2 data disk pool=default size=48GiB
-#   incus config set claude-worker-2 boot.autostart=true
+#     -c cloud-init.user-data="$(cat platform/files/incus/claude-worker-3-cloud-init.yaml)" \
+#     -c cloud-init.network-config="$(cat platform/files/incus/claude-worker-3-network-config.yaml)"
+#   incus config device add claude-worker-3 data disk pool=default size=48GiB
+#   incus config set claude-worker-3 boot.autostart=true
 
-hostname: claude-worker-2
+hostname: claude-worker-3
 manage_etc_hosts: true
-fqdn: claude-worker-2.lan
+fqdn: claude-worker-3.lan
 
 users:
   - name: c4

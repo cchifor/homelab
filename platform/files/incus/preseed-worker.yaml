@@ -1,4 +1,4 @@
-# Preseed for Q6A workers that ALSO run k3s on bare metal.
+# Preseed for rdxa workers (rdxa1..4) — Incus 7.0 alongside k3s-agent.
 #
 # Storage: dir-backed under /var/lib/incus (shares the ext4 root with k3s).
 # Network: macvlan child on enp1s0 (same physical NIC as flannel's VXLAN
@@ -10,9 +10,9 @@
 # Applied by platform/scripts/prep-worker-incus.sh via:
 #   incus admin init --preseed < preseed-worker.yaml
 #
-# This is the "Incus alongside k3s" variant — minimal, dormant standby
-# capacity, no VMs running by default. The dedicated-hypervisor variant
-# (used on q6a-1, which hosts claude-worker-2) is platform/files/incus/preseed.yaml.
+# This is the "Incus alongside k3s" config every rdxa host runs since
+# 2026-05-19. The standalone variant (no cluster) is preseed.yaml — retained
+# as reference for single-host deployments.
 
 config:
   core.https_address: "[::]:8443"

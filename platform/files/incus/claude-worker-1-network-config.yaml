@@ -1,0 +1,23 @@
+# Cloud-init Network Config v2 for claude-worker-1.
+# Static IP 192.168.0.141 — claude-worker-N maps to .14N in the unified scheme.
+#
+# Match by driver=virtio_net (not by NIC name) so this stays correct
+# regardless of how Debian's predictable-naming scheme labels the interface
+# inside the guest (e.g., enp5s0 today, could differ on different host
+# hardware down the road). `set-name` then renames it to enp5s0 for
+# consistency across the fleet.
+
+version: 2
+ethernets:
+  primary:
+    match:
+      driver: virtio_net
+    set-name: enp5s0
+    dhcp4: false
+    addresses:
+      - 192.168.0.141/23
+    gateway4: 192.168.0.1
+    nameservers:
+      addresses:
+        - 1.1.1.1
+        - 192.168.0.1

@@ -52,7 +52,7 @@ fi
 # Step 2/6: Install Incus 7.0 + qemu + bridge-utils (idempotent)
 #
 # Default Armbian noble repos only ship Incus 6.0 (Ubuntu native). We use
-# the Zabbly stable repo for Incus 7.0 — matches q6a-1's version exactly so
+# the Zabbly stable repo for Incus 7.0 — pins the same version across all rdxa hosts so
 # the fleet has zero version drift. Key fingerprint verified against
 # Stéphane Graber's published fingerprint to catch a swapped key.
 # Repo: https://github.com/zabbly/incus

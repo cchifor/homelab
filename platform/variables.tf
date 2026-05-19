@@ -275,27 +275,27 @@ variable "workers" {
     taints   = optional(list(string), [])
   }))
   default = {
-    q6a-1 = {
-      name     = "q6a-1"
-      address  = "192.168.0.174"
+    rdxa1 = {
+      name     = "rdxa1"
+      address  = "192.168.0.131"
       ssh_user = "c4"
       ssh_key  = "~/.ssh/id_ed25519"
     }
-    q6a-2 = {
-      name     = "q6a-2"
-      address  = "192.168.0.200"
+    rdxa2 = {
+      name     = "rdxa2"
+      address  = "192.168.0.132"
       ssh_user = "c4"
       ssh_key  = "~/.ssh/id_ed25519"
     }
-    q6a-3 = {
-      name     = "q6a-3"
-      address  = "192.168.0.129"
+    rdxa3 = {
+      name     = "rdxa3"
+      address  = "192.168.0.133"
       ssh_user = "c4"
       ssh_key  = "~/.ssh/id_ed25519"
     }
-    q6a-4 = {
-      name     = "q6a-4"
-      address  = "192.168.1.167"
+    rdxa4 = {
+      name     = "rdxa4"
+      address  = "192.168.0.134"
       ssh_user = "c4"
       ssh_key  = "~/.ssh/id_ed25519"
     }
@@ -321,7 +321,7 @@ variable "longhorn_namespace" {
 variable "longhorn_replica_count" {
   type        = number
   default     = 3
-  description = "Default volume replica count. With 3 worker nodes (q6a-2/3/4) we run 3 — one replica per node — so any single-node outage stays at degraded, not faulted. Was 2 originally; bumped after the 2026-05-17 incident where q6a-1's removal left half the volumes single-replica and q6a-3's overload then risked data loss."
+  description = "Default volume replica count. With 4 worker nodes (rdxa1/2/3/4) we run 3 — one replica per node — so any single-node outage stays at degraded, not faulted. Was 2 originally; bumped after the 2026-05-17 incident where q6a-1's removal left half the volumes single-replica and q6a-3's overload then risked data loss."
 }
 
 variable "longhorn_default_storage_class_name" {

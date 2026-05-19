@@ -27,63 +27,63 @@
       "id": 1, "type": "stat", "title": "Hypervisors Up",
       "gridPos": {"x": 0, "y": 1, "w": 4, "h": 4},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "count(up{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"} == 1)", "refId": "A"}],
+      "targets": [{"expr": "count(up{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"} == 1)", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "none", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 1}, {"color": "green", "value": 4}]}}}
     },
     {
       "id": 2, "type": "stat", "title": "Physical CPU Cores",
       "gridPos": {"x": 4, "y": 1, "w": 4, "h": 4},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "count(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A"}],
+      "targets": [{"expr": "count(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"})", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "none"}}
     },
     {
       "id": 3, "type": "stat", "title": "Physical Memory",
       "gridPos": {"x": 8, "y": 1, "w": 4, "h": 4},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "sum(node_memory_MemTotal_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A"}],
+      "targets": [{"expr": "sum(node_memory_MemTotal_bytes{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"})", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "bytes"}}
     },
     {
       "id": 4, "type": "stat", "title": "Fleet CPU Used",
       "gridPos": {"x": 12, "y": 1, "w": 4, "h": 4},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}[5m])))", "refId": "A"}],
+      "targets": [{"expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"}[5m])))", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 60}, {"color": "red", "value": 85}]}}}
     },
     {
       "id": 5, "type": "stat", "title": "Fleet Memory Used",
       "gridPos": {"x": 16, "y": 1, "w": 4, "h": 4},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "100 * (1 - sum(node_memory_MemAvailable_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}) / sum(node_memory_MemTotal_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}))", "refId": "A"}],
+      "targets": [{"expr": "100 * (1 - sum(node_memory_MemAvailable_bytes{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"}) / sum(node_memory_MemTotal_bytes{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"}))", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}}}
     },
     {
       "id": 6, "type": "stat", "title": "Fleet Load (1m avg sum)",
       "gridPos": {"x": 20, "y": 1, "w": 4, "h": 4},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "sum(node_load1{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A"}],
+      "targets": [{"expr": "sum(node_load1{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"})", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}}
     },
     {
       "id": 10, "type": "timeseries", "title": "CPU % per Hypervisor",
       "gridPos": {"x": 0, "y": 5, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"}[5m])))", "refId": "A", "legendFormat": "{{instance}}"}],
+      "targets": [{"expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\",instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"}[5m])))", "refId": "A", "legendFormat": "{{instance}}"}],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}
     },
     {
       "id": 11, "type": "timeseries", "title": "Memory % per Hypervisor",
       "gridPos": {"x": 12, "y": 5, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"} / node_memory_MemTotal_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\"})", "refId": "A", "legendFormat": "{{instance}}"}],
+      "targets": [{"expr": "100 * (1 - node_memory_MemAvailable_bytes{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"} / node_memory_MemTotal_bytes{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\"})", "refId": "A", "legendFormat": "{{instance}}"}],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}
     },
     {
       "id": 12, "type": "timeseries", "title": "Root Disk Used % per Hypervisor",
       "gridPos": {"x": 0, "y": 13, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
-      "targets": [{"expr": "100 - 100 * node_filesystem_avail_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",mountpoint=\"/\",fstype!~\"tmpfs|ramfs|squashfs|overlay\"} / node_filesystem_size_bytes{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",mountpoint=\"/\"}", "refId": "A", "legendFormat": "{{instance}}"}],
+      "targets": [{"expr": "100 - 100 * node_filesystem_avail_bytes{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\",mountpoint=\"/\",fstype!~\"tmpfs|ramfs|squashfs|overlay\"} / node_filesystem_size_bytes{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\",mountpoint=\"/\"}", "refId": "A", "legendFormat": "{{instance}}"}],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}
     },
     {
@@ -91,8 +91,8 @@
       "gridPos": {"x": 12, "y": 13, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
-        {"expr": "sum by (instance) (rate(node_network_receive_bytes_total{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",device!~\"lo|docker.*|veth.*|cni.*|flannel.*|mac.*\"}[5m]))", "refId": "A", "legendFormat": "{{instance}} rx"},
-        {"expr": "-sum by (instance) (rate(node_network_transmit_bytes_total{instance=~\"192.168.0.174:9100|192.168.0.200:9100|192.168.0.129:9100|192.168.1.167:9100\",device!~\"lo|docker.*|veth.*|cni.*|flannel.*|mac.*\"}[5m]))", "refId": "B", "legendFormat": "{{instance}} tx"}
+        {"expr": "sum by (instance) (rate(node_network_receive_bytes_total{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\",device!~\"lo|docker.*|veth.*|cni.*|flannel.*|mac.*\"}[5m]))", "refId": "A", "legendFormat": "{{instance}} rx"},
+        {"expr": "-sum by (instance) (rate(node_network_transmit_bytes_total{instance=~\"192.168.0.131:9100|192.168.0.132:9100|192.168.0.133:9100|192.168.0.134:9100\",device!~\"lo|docker.*|veth.*|cni.*|flannel.*|mac.*\"}[5m]))", "refId": "B", "legendFormat": "{{instance}} tx"}
       ],
       "fieldConfig": {"defaults": {"unit": "Bps"}}
     },

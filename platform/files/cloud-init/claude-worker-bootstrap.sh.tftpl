@@ -80,6 +80,10 @@ defaults:
     open: false      # workaround for v4.24.x markdown renderer panic under tmux-256color
 EOF
 for u in ${ssh_user} claude-agent; do
+  # claude-agent is created later in this section — skip until then.
+  # /etc/skel/.config/gh-dash/config.yml is auto-applied when claude-agent is
+  # eventually adduser'd (skel files are copied at user-create time).
+  id "$u" >/dev/null 2>&1 || continue
   if [ ! -f /home/$u/.config/gh-dash/config.yml ]; then
     install -d -m 0700 -o $u -g $u /home/$u/.config/gh-dash
     install -m 0600 -o $u -g $u /etc/skel/.config/gh-dash/config.yml /home/$u/.config/gh-dash/config.yml

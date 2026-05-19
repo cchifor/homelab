@@ -9,7 +9,7 @@ in the same Grafana you already use for k8s.
 ```
 ┌────────────────┐  HTTPS + mTLS    ┌─────────────────────┐
 │ Prometheus     │ ───────────────► │ Incus members (×4)  │
-│ (monitoring/)  │  /1.0/metrics    │  q6a-1..q6a-4       │
+│ (monitoring/)  │  /1.0/metrics    │  rdxa1..rdxa4       │
 └──────┬─────────┘                  │  trust type=metrics │
        │                            └─────────────────────┘
        ▼
@@ -40,8 +40,8 @@ in the same Grafana you already use for k8s.
 2. **Register the cert on Incus** with metrics-only trust (scoped — can read
    metrics, cannot create/modify VMs):
    ```bash
-   scp client.crt c4@192.168.0.174:/tmp/prom-scraper.crt
-   ssh c4@192.168.0.174 'sudo incus config trust add-certificate \
+   scp client.crt c4@192.168.0.131:/tmp/prom-scraper.crt
+   ssh c4@192.168.0.131 'sudo incus config trust add-certificate \
      --type=metrics --name=prometheus-scraper /tmp/prom-scraper.crt; \
      rm /tmp/prom-scraper.crt'
    ```
@@ -93,17 +93,15 @@ If the Secret is lost or the cert needs rotation:
 1. Repeat steps 1–4 above.
 2. Remove the old cert from Incus's trust list:
    ```bash
-   ssh c4@192.168.0.174 'sudo incus config trust list | grep prometheus'
-   ssh c4@192.168.0.174 'sudo incus config trust remove <old-fingerprint>'
+   ssh c4@192.168.0.131 'sudo incus config trust list | grep prometheus'
+   ssh c4@192.168.0.131 'sudo incus config trust remove <old-fingerprint>'
    ```
 
-## What this does NOT cover (deferred)
+## Host-level metrics
 
-- **Host-level CPU/memory/disk on q6a-1**: q6a-1 isn't a k8s node (Incus-only),
-  so kube-prometheus-stack's node-exporter daemonset doesn't run there. The
-  Incus metrics endpoint only exposes *instance-level* data (per VM/container),
-  not host-level. If you want host CPU/mem on q6a-1, install a standalone
-  node-exporter and add another ScrapeConfig.
-- **Host-level metrics for q6a-2/3/4**: already covered by node-exporter from
-  kube-prometheus-stack since those are k8s worker nodes. Look under the
-  existing "Node Exporter" Grafana dashboard, filtered by `q6a-2/3/4`.
+All 4 rdxa hosts (rdxa1..4) run k3s-agent + Incus side-by-side, so the
+kube-prometheus-stack node-exporter daemonset already reaches every host.
+The fleet dashboard above queries those daemonset endpoints by IP; host
+CPU/mem/disk/network all flow through that channel. No standalone scrape
+target needed (the old `q6a-1-node-exporter-scrapeconfig.yaml` was retired
+on 2026-05-19 when q6a-1 became rdxa1 with k3s installed alongside Incus).

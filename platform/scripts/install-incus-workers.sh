@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # scripts/install-incus-workers.sh
 #
-# One-time orchestrator that ships and runs prep-worker-incus.sh on each
-# Q6A worker. Targets q6a-2/3/4 (q6a-1 is already running Incus 7.0 as a
-# dedicated hypervisor — see check-the-resources-usage-mighty-pnueli.md).
+# Orchestrator that ships and runs prep-worker-incus.sh on each rdxa worker
+# (rdxa1..4). All 4 hosts run both k3s-agent and Incus 7.0 in the unified
+# scheme since 2026-05-19. Use this when reflashing a node from a clean
+# image, or to bring a 5th worker into the fleet — it is idempotent.
 #
 # Prereq (USER): UEFI Hypervisor Override must be enabled on each target
 # (F2 during boot → Hypervisor Settings → Hypervisor Override). Without it,
 # install completes but VMs can't launch (LXC containers still work).
 #
 # Flags:
-#   --only <name>   Run on just one node (e.g. --only q6a-2). Useful for
+#   --only <name>   Run on just one node (e.g. --only rdxa3). Useful for
 #                   staged rollout or retrying a single failure.
 #   --ssh-key PATH  Override the SSH key (default: from cluster.conf).
 #
@@ -31,12 +32,9 @@ fi
 # shellcheck source=cluster.conf
 . "$CONF_FILE"
 
-# Targets are hardcoded here (not from cluster.conf's WORKERS) because q6a-1
-# is already done — its Incus install pre-dates this script and reflects a
-# dedicated-hypervisor preseed, not the "alongside k3s" variant.
-WORKERS_INCUS='q6a-2=192.168.0.200
-q6a-3=192.168.0.129
-q6a-4=192.168.1.167'
+# All 4 rdxa hosts run the same Incus+k3s coexistence config. Source from
+# cluster.conf so adding a 5th host is one edit there, not here.
+WORKERS_INCUS="$WORKERS"
 
 ONLY_NODE=""
 
@@ -146,8 +144,9 @@ banner "All Incus installs done"
 echo "Next:"
 echo "  - Verify per node: ssh c4@<addr> 'incus version && ss -tln | grep :8443'"
 echo "  - Web UI per node: https://<addr>:8443"
-echo "  - Re-bootstrap k3s from $(dirname "$SCRIPT_DIR"):"
+echo "  - Re-bootstrap k3s (if a node was reflashed) from $(dirname "$SCRIPT_DIR"):"
 echo "      terraform apply \\"
-echo "        -replace='null_resource.bootstrap_worker[\"q6a-2\"]' \\"
-echo "        -replace='null_resource.bootstrap_worker[\"q6a-3\"]' \\"
-echo "        -replace='null_resource.bootstrap_worker[\"q6a-4\"]'"
+echo "        -replace='null_resource.bootstrap_worker[\"rdxa1\"]' \\"
+echo "        -replace='null_resource.bootstrap_worker[\"rdxa2\"]' \\"
+echo "        -replace='null_resource.bootstrap_worker[\"rdxa3\"]' \\"
+echo "        -replace='null_resource.bootstrap_worker[\"rdxa4\"]'"
