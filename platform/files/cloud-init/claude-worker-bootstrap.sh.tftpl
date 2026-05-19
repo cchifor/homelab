@@ -110,13 +110,13 @@ cat > /usr/local/bin/gh-actions-fleet <<'EOF'
 #!/usr/bin/env bash
 # Compact GitHub Actions view: status icon + workflow name only.
 REPOS=(cchifor/forge cchifor/platform)
-for r in "${REPOS[@]}"; do
+for r in "$${REPOS[@]}"; do
   printf '\033[1;36m═══ %s ═══\033[0m\n' "$r"
   gh run list --repo "$r" --limit 10 \
     --json conclusion,status,workflowName \
     --jq '.[] | "\(.conclusion)|\(.status)|\(.workflowName)"' 2>/dev/null \
   | while IFS='|' read -r conc status name; do
-      st="${conc:-$status}"   # in-progress runs report conclusion="" — fall back to status
+      st="$${conc:-$status}"   # in-progress runs report conclusion="" — fall back to status
       case "$st" in
         success)         printf '\033[32m✓\033[0m %s\n' "$name" ;;
         failure)         printf '\033[31m✗\033[0m %s\n' "$name" ;;

@@ -303,6 +303,64 @@ variable "workers" {
 }
 
 # =============================================================================
+# Incus cluster (provider config + claude-worker VMs)
+# =============================================================================
+
+variable "incus_remote_name" {
+  type        = string
+  default     = "homelab"
+  description = "Name of the operator-side Incus remote that points at the cluster. Set via `incus remote add homelab https://192.168.0.131:8443 --accept-certificate` after a one-time trust-cert + OIDC login. Don't use the literal `local` (that's the operator's own machine if it runs Incus)."
+}
+
+variable "incus_remote_address" {
+  type        = string
+  default     = "192.168.0.131"
+  description = "IP or hostname of any cluster member the operator's Incus client should talk to. Cluster ops are forwarded across members internally, so picking the leader (rdxa1) is fine; pick whichever node is most stable."
+}
+
+variable "incus_target_pool" {
+  type        = string
+  default     = "default"
+  description = "Storage pool name on each cluster member. Pool is per-node `dir`-backed; this is the pool name, not a path."
+}
+
+variable "incus_claude_worker_image" {
+  type        = string
+  default     = "images:debian/12/cloud"
+  description = "Image source for the claude-worker VMs. `images:debian/12/cloud` resolves to the latest arm64 VM image (~384 MiB). Pin to a fingerprint like `images:b0455abed7e7` if you want reproducible recreates."
+}
+
+variable "incus_claude_worker_root_size" {
+  type        = string
+  default     = "32GiB"
+  description = "Root disk size for each claude-worker VM. 32GiB matches the existing claude-worker VMs after the 2026-05-18 disk-full incident."
+}
+
+variable "incus_claude_worker_data_size" {
+  type        = string
+  default     = "48GiB"
+  description = "Custom data volume size (mounted at /workspace by the bootstrap)."
+}
+
+variable "incus_claude_worker_cpu_limit" {
+  type        = string
+  default     = "6"
+  description = "CPU shares for each claude-worker VM. Shared (not pinned) — rdxa hosts have 8 cores and run k3s + Incus on the host alongside the VM."
+}
+
+variable "incus_claude_worker_memory_limit" {
+  type        = string
+  default     = "6GiB"
+  description = "Memory cap per claude-worker VM. Virtio-balloon lets the kernel reclaim under host pressure. 6GiB on 11GiB hosts (12GB - reserved) leaves ~5GiB for k3s + Incus + cache. Drop to 4GiB if you see host OOM during bootstrap (see project memory: 2026-05-19 incident)."
+}
+
+variable "incus_claude_worker_ssh_pubkey" {
+  type        = string
+  default     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC0tNhxNAEUrKfr/iyjerdyvrntXQbGj05kU+ein0HNV chifor@gmail.com"
+  description = "SSH public key authorized for c4 inside the claude-worker VMs. Same as the operator's key — Terraform-managed instances stay in sync with the live state."
+}
+
+# =============================================================================
 # Longhorn
 # =============================================================================
 

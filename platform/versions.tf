@@ -39,5 +39,10 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.31"
     }
+
+    incus = {
+      source  = "lxc/incus"
+      version = "~> 0.3"
+    }
   }
 }

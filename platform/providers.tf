@@ -24,3 +24,18 @@ provider "kubectl" {
 provider "kubernetes" {
   config_path = var.local_kubeconfig_path
 }
+
+# Incus provider for the 4-node rdxa cluster. Defaults to the operator's local
+# Incus client config at ~/.config/incus/config.yml (Linux/macOS) or
+# %AppData%/incus/config.yml (Windows). The default remote should be one of
+# the cluster members (e.g. rdxa1) added via `incus remote add` after a
+# trust-cert handshake. See platform/README.md § "Operator-side Incus client
+# setup" for the one-time configuration.
+provider "incus" {
+  remote {
+    name    = var.incus_remote_name
+    address = "https://${var.incus_remote_address}:8443"
+    scheme  = "https"
+    default = true
+  }
+}

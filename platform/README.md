@@ -463,6 +463,71 @@ This is the procedure followed on 2026-05-19 when the renumber-in-place attempt 
 
 ---
 
+## Operator-side Incus client setup (one-time)
+
+The Terraform `lxc/incus` provider authenticates against the cluster via the operator's local Incus client config. On a fresh operator machine (Windows / macOS / Linux), do this once:
+
+1. **Install the Incus client.**
+   - **Windows:** download `incus.exe` from <https://github.com/lxc/incus/releases> (look for `incus-windows-amd64.zip`), extract somewhere on `PATH` (e.g. `C:\tools\incus\`).
+   - **macOS:** `brew install incus`
+   - **Linux (Debian/Ubuntu):** follow the Zabbly stable repo instructions — same key fingerprint as the server install in `scripts/prep-worker-incus.sh`.
+
+2. **Add the cluster as a remote.** Use any cluster member's IP (they all forward); rdxa1 is the leader so it's a good default:
+   ```pwsh
+   incus remote add homelab https://192.168.0.131:8443 --accept-certificate
+   ```
+   You'll be prompted for the trust password OR redirected to OIDC. Authentik (`authentik.chifor.dev`) is wired up; log in with your normal browser session and the trust handshake completes silently.
+
+3. **Verify access.**
+   ```pwsh
+   incus --project default cluster list homelab:
+   incus --project default list homelab:
+   ```
+   You should see all 4 rdxa members ONLINE and the claude-worker-1..4 instances.
+
+4. **Tell Terraform the remote name** — the defaults in `variables.tf` are already `homelab` + `192.168.0.131`. Override per-environment via `tofu apply -var='incus_remote_name=...' -var='incus_remote_address=...'` or by editing your own `terraform.tfvars`.
+
+The Terraform Incus provider reuses these client credentials — no separate config in `providers.tf` beyond the remote name.
+
+---
+
+## Importing the live Incus VMs into Terraform state
+
+The 4 claude-worker VMs (`claude-worker-1..4`) and their data volumes (`claude-worker-N-data`) were created out-of-band by direct `incus launch` calls on 2026-05-19 (during the post-rename cluster rebuild). To bring them under Terraform management:
+
+```pwsh
+cd platform
+# Per-VM imports (run once; safe to re-run — terraform import is idempotent
+# and noops if the resource is already in state):
+foreach ($n in 1..4) {
+  tofu import "incus_storage_volume.claude_worker_data[`"claude-worker-$n`"]" "homelab:default/default/claude-worker-$n-data"
+  tofu import "incus_instance.claude_worker[`"claude-worker-$n`"]" "homelab:default/claude-worker-$n"
+}
+```
+
+Bash equivalent:
+```bash
+for n in 1 2 3 4; do
+  tofu import "incus_storage_volume.claude_worker_data[\"claude-worker-$n\"]" "homelab:default/default/claude-worker-$n-data"
+  tofu import "incus_instance.claude_worker[\"claude-worker-$n\"]"            "homelab:default/claude-worker-$n"
+done
+```
+
+After imports, `tofu plan` should show "0 to add, 0 to change, 0 to destroy" for the instance + volume resources. The `null_resource.claude_worker_incus_bootstrap[*]` resources will appear as NEW (they have no state yet); the first apply re-runs the bootstrap script over SSH which is **idempotent** — every section checks before acting, so it takes ~30s per worker if everything is already installed (vs ~15 min on first run).
+
+If you want to skip the bootstrap re-run on first apply, target-plan to surface the trigger hashes and pre-seed state:
+```bash
+tofu apply -target='null_resource.claude_worker_incus_bootstrap'  # will run all four sequentially
+```
+
+### Renaming / re-targeting
+
+To move a claude-worker to a different rdxa host, just update `local.claude_workers` in `incus.tf` (or override via `var.workers` so that `rdxaN` resolves differently). Terraform plans an in-place update for the `target` attribute on `incus_instance` and `incus_storage_volume` — but the provider may force a recreate. Verify the plan output before applying.
+
+To add a 5th claude-worker (e.g. for rdxa5), no code change needed beyond adding `rdxa5 = { … }` to `var.workers` — the `for_each = local.claude_worker_hosts` filter picks it up automatically.
+
+---
+
 ## Longhorn backups + auto-balance (post-2026-05-17 hardening)
 
 After the May 17 cluster rebuild, two safety nets are in place:
