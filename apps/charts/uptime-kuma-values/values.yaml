@@ -85,3 +85,17 @@ readinessProbe:
 service:
   type: ClusterIP
   port: 3001
+
+# === Pod placement ===
+# Pin Kuma to the control-plane VM (k3s-server-01 on the Proxmox host) so
+# its PING probes can reach all 4 claude-worker VMs. The VMs use Incus
+# macvlan on enp1s0; the kernel L2-isolates macvlan children from their
+# parent interface, which means any pod scheduled on rdxaN can't reach
+# the claude-worker-N VM that lives on the same host (`Destination Host
+# Unreachable`). Other claude-worker VMs are reachable over the LAN. By
+# parking Kuma on k3s-server-01 (Proxmox VM, no macvlan kids), every
+# claude-worker IP is reachable through the normal LAN router path.
+# k3s-server-01 has no control-plane taint so nodeSelector is sufficient;
+# no tolerations needed.
+nodeSelector:
+  kubernetes.io/hostname: k3s-server-01
